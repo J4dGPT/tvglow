@@ -9,7 +9,9 @@ final class Settings {
     static final String[] STYLE_NAMES = {"Cozy", "Vivid", "Accurate"};
     static final String[] MODE_NAMES = {"App segments", "Realtime zones", "Single color"};
     static final int MODE_SEGMENTS = 0, MODE_REALTIME = 1, MODE_SINGLE = 2;
-    static final int[] FPS_OPTIONS = {10, 15, 20};
+    static final int[] FPS_OPTIONS = {10, 15, 20, 30};
+    static final int[] DETAIL_GROUP = {1, 2, 3};
+    static final String[] DETAIL_NAMES = {"Max", "Balanced", "Smoothest"};
     static final int[] BRIGHTNESS_OPTIONS = {40, 60, 80, 100};
     static final String[] SMOOTH_NAMES = {"Fast", "Balanced", "Smooth"};
     static final float[] SMOOTH_ALPHA = {0.85f, 0.55f, 0.3f}; // original speeds
@@ -20,6 +22,7 @@ final class Settings {
     int shift = 0;
     int brightness = 100;
     int fps = 20;
+    int detail = 1; // index into DETAIL_GROUP; 2 segments per zone by default
     int smoothing = 1;
     boolean gradient = false;
     int mode = MODE_SEGMENTS;
@@ -45,6 +48,7 @@ final class Settings {
         s.smoothing = p.getInt("smoothing", s.smoothing);
         s.gradient = p.getBoolean("blend", s.gradient);
         s.mode = p.getInt("mode", s.mode);
+        s.detail = p.getInt("detail", s.detail);
         s.style = p.getInt("style", s.style);
         s.appSegments = p.getInt("appSegments", s.appSegments);
         for (int i = 0; i < 4; i++) s.sides[i] = p.getInt("side" + i, 0);
@@ -65,6 +69,7 @@ final class Settings {
                 .putInt("smoothing", smoothing)
                 .putBoolean("blend", gradient)
                 .putInt("mode", mode)
+                .putInt("detail", detail)
                 .putInt("style", style)
                 .putInt("appSegments", appSegments)
                 .putString("ip", ip)

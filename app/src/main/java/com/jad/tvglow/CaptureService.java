@@ -270,24 +270,38 @@ public class CaptureService extends Service {
             int budget = 4; // Rate 10/15/20 => ~40/60/80 segment commands per second
             seg = new int[n];
             java.util.Arrays.fill(seg, -1);
-            float[] dist = new float[n];
-            for (int i = 0; i < n; i++) {
-                dist[i] = lastSentSeg[i] < 0 ? 999f : EdgeSampler.colorDistance(ordered[i], lastSentSeg[i]);
+            // Detail: neighboring segments share one color (one command per group).
+            int g = Settings.DETAIL_GROUP[Math.max(0, Math.min(2, s.detail))];
+            int groups = (n + g - 1) / g;
+            int[] gc = new int[groups];
+            for (int k = 0; k < groups; k++) {
+                int a = k * g, b = Math.min(n, a + g);
+                gc[k] = EdgeSampler.average(java.util.Arrays.copyOfRange(ordered, a, b));
             }
+            float[] dist = new float[groups];
+            for (int k = 0; k < groups; k++) {
+                int prev = lastSentSeg[k * g];
+                dist[k] = prev < 0 ? 999f : EdgeSampler.colorDistance(gc[k], prev);
+            }
+            boolean[] pick = new boolean[groups];
             int picked = 0;
-            for (int k = 0; k < budget; k++) {
+            for (int it = 0; it < budget; it++) {
                 int best = -1;
                 float bestD = 6f; // ignore changes too small to see
-                for (int i = 0; i < n; i++) {
-                    if (seg[i] < 0 && dist[i] > bestD) { bestD = dist[i]; best = i; }
+                for (int k = 0; k < groups; k++) {
+                    if (!pick[k] && dist[k] > bestD) { bestD = dist[k]; best = k; }
                 }
                 if (best < 0) break;
-                seg[best] = ordered[best];
+                pick[best] = true;
                 picked++;
             }
-            refreshIdx = (refreshIdx + 1) % n; // keeps every zone fresh if a packet was lost
-            if (seg[refreshIdx] < 0) { seg[refreshIdx] = ordered[refreshIdx]; picked++; }
+            refreshIdx = (refreshIdx + 1) % groups; // keeps every zone fresh if a packet was lost
+            if (!pick[refreshIdx]) { pick[refreshIdx] = true; picked++; }
             if (picked == 0) return;
+            for (int k = 0; k < groups; k++) {
+                if (!pick[k]) continue;
+                for (int i = k * g; i < Math.min(n, k * g + g); i++) seg[i] = gc[k];
+            }
         }
         if (!sending.compareAndSet(false, true)) return; // drop frame if network is busy
         lastSend = now;
