@@ -8,7 +8,9 @@ import java.util.Base64;
  *
  * Razer binary frame: {0xBB, sizeHi, sizeLo, cmd, data..., xorChecksum}
  *   0xB1 enable:   data = {on ? 1 : 0}
- *   0xB0 LED data: data = {gradient, count, r,g,b, r,g,b, ...}
+ *   0xB0 LED data: data = {flag, count, r,g,b, r,g,b, ...}
+ *     flag 1 = discrete zones (what devices expect by default), 0 = blend.
+ *     Some docs describe this flag inverted; sending 0 makes devices ignore frames.
  * The device drops out of razer mode if no LED data arrives for ~60s.
  */
 public final class GoveeProtocol {
@@ -48,7 +50,7 @@ public final class GoveeProtocol {
     public static byte[] ledData(int[] rgb, boolean gradient) {
         int n = Math.min(rgb.length, 255);
         byte[] data = new byte[2 + n * 3];
-        data[0] = (byte) (gradient ? 1 : 0);
+        data[0] = (byte) (gradient ? 0 : 1);
         data[1] = (byte) n;
         for (int i = 0; i < n; i++) {
             int c = rgb[i];

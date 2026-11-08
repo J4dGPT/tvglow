@@ -17,7 +17,7 @@ final class Settings {
     int brightness = 100;
     int fps = 20;
     int smoothing = 1;
-    boolean gradient = true;
+    boolean gradient = false;
     float saturation = 1.25f;
     String ip = "";
 
@@ -35,7 +35,7 @@ final class Settings {
         s.brightness = p.getInt("brightness", s.brightness);
         s.fps = p.getInt("fps", s.fps);
         s.smoothing = p.getInt("smoothing", s.smoothing);
-        s.gradient = p.getBoolean("gradient", s.gradient);
+        s.gradient = p.getBoolean("blend", s.gradient);
         s.ip = p.getString("ip", s.ip);
         return s;
     }
@@ -49,7 +49,7 @@ final class Settings {
                 .putInt("brightness", brightness)
                 .putInt("fps", fps)
                 .putInt("smoothing", smoothing)
-                .putBoolean("gradient", gradient)
+                .putBoolean("blend", gradient)
                 .putString("ip", ip)
                 .apply();
     }
