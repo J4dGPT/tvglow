@@ -50,7 +50,8 @@ public class CaptureService extends Service {
     private Settings settings;
     private int[] pixels = new int[W * H];
     private float[] smoothed;
-    private long lastFrame, lastSettingsLoad, lastKeepAlive, darkSince, lastSingle;
+    private long lastFrame, lastSettingsLoad, lastKeepAlive, darkSince, lastSlow, lastFull;
+    private int[] lastSentSeg;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -135,7 +136,7 @@ public class CaptureService extends Service {
             try {
                 GoveeClient c = new GoveeClient(ip);
                 c.turnOn();
-                if (!settings.single) c.razer(true);
+                if (settings.mode == Settings.MODE_REALTIME) c.razer(true); else c.razer(false);
                 client = c;
                 lastKeepAlive = SystemClock.uptimeMillis();
                 status = "Syncing to strip at " + ip;
@@ -186,7 +187,7 @@ public class CaptureService extends Service {
 
     private void process(long now) {
         Settings s = settings;
-        int n = s.segments;
+        int n = s.zoneCount();
 
         if (EdgeSampler.allDark(pixels)) {
             if (darkSince == 0) darkSince = now;
@@ -223,10 +224,35 @@ public class CaptureService extends Service {
         int[] ordered = EdgeSampler.order(out, s.reverse, s.shift);
         boolean keepAlive = now - lastKeepAlive > 10000;
         if (keepAlive) lastKeepAlive = now;
-        final boolean single = s.single;
+        final int mode = s.mode;
         final int avg = EdgeSampler.average(out);
-        if (single && now - lastSingle < 100) return; // official command fades; 10/s is plenty
-        if (single) lastSingle = now;
+        if (mode != Settings.MODE_REALTIME) {
+            if (now - lastSlow < 100) return; // these commands top out around 10/s
+            lastSlow = now;
+        }
+        int[] seg = null;
+        if (mode == Settings.MODE_SEGMENTS) {
+            boolean full = now - lastFull > 1000 || lastSentSeg == null || lastSentSeg.length != n;
+            if (full) {
+                lastFull = now;
+                lastSentSeg = new int[n];
+                java.util.Arrays.fill(lastSentSeg, -2);
+            }
+            seg = new int[n];
+            boolean any = false;
+            for (int i = 0; i < n; i++) {
+                int q = EdgeSampler.quantize(ordered[i]);
+                if (q == lastSentSeg[i]) {
+                    seg[i] = -1;
+                } else {
+                    seg[i] = q;
+                    lastSentSeg[i] = q;
+                    any = true;
+                }
+            }
+            if (!any) return;
+        }
+        final int[] segColors = seg;
 
         if (!sending.compareAndSet(false, true)) return; // drop frame if network is busy
         final boolean gradient = s.gradient;

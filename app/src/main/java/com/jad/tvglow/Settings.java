@@ -5,6 +5,9 @@ import android.content.SharedPreferences;
 
 final class Settings {
     static final int[] SEGMENT_OPTIONS = {10, 15, 20, 30, 40};
+    static final int[] APP_SEGMENT_OPTIONS = {8, 10, 12, 14, 15, 16};
+    static final String[] MODE_NAMES = {"App segments", "Realtime zones", "Single color"};
+    static final int MODE_SEGMENTS = 0, MODE_REALTIME = 1, MODE_SINGLE = 2;
     static final int[] FPS_OPTIONS = {10, 15, 20, 30};
     static final int[] BRIGHTNESS_OPTIONS = {40, 60, 80, 100};
     static final String[] SMOOTH_NAMES = {"Fast", "Balanced", "Smooth"};
@@ -18,7 +21,8 @@ final class Settings {
     int fps = 20;
     int smoothing = 1;
     boolean gradient = false;
-    boolean single = false;
+    int mode = MODE_SEGMENTS;
+    int appSegments = 15;
     float saturation = 1.25f;
     String ip = "";
 
@@ -37,7 +41,8 @@ final class Settings {
         s.fps = p.getInt("fps", s.fps);
         s.smoothing = p.getInt("smoothing", s.smoothing);
         s.gradient = p.getBoolean("blend", s.gradient);
-        s.single = p.getBoolean("single", s.single);
+        s.mode = p.getInt("mode", s.mode);
+        s.appSegments = p.getInt("appSegments", s.appSegments);
         s.ip = p.getString("ip", s.ip);
         return s;
     }
@@ -52,9 +57,17 @@ final class Settings {
                 .putInt("fps", fps)
                 .putInt("smoothing", smoothing)
                 .putBoolean("blend", gradient)
-                .putBoolean("single", single)
+                .putInt("mode", mode)
+                .putInt("appSegments", appSegments)
                 .putString("ip", ip)
                 .apply();
+    }
+
+    /** Number of color zones the current mode drives. */
+    int zoneCount() {
+        if (mode == MODE_SEGMENTS) return appSegments;
+        if (mode == MODE_SINGLE) return 12;
+        return segments;
     }
 
     static int next(int[] options, int current) {

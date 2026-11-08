@@ -35,6 +35,55 @@ public final class GoveeProtocol {
                 + "},\"colorTemInKelvin\":0}}}";
     }
 
+    /**
+     * App-style segment color command (what the Govee app sends over Bluetooth),
+     * tunneled over LAN with ptReal. 20 bytes: 33 05 15 01 R G B 00x5 maskLo maskHi,
+     * zero padded, last byte = XOR of the first 19. Bit n of mask = segment n+1.
+     */
+    public static byte[] segmentColorFrame(int rgb, int mask) {
+        byte[] f = new byte[20];
+        f[0] = 0x33;
+        f[1] = 0x05;
+        f[2] = 0x15;
+        f[3] = 0x01;
+        f[4] = (byte) ((rgb >> 16) & 0xFF);
+        f[5] = (byte) ((rgb >> 8) & 0xFF);
+        f[6] = (byte) (rgb & 0xFF);
+        f[12] = (byte) (mask & 0xFF);
+        f[13] = (byte) ((mask >> 8) & 0xFF);
+        byte x = 0;
+        for (int i = 0; i < 19; i++) x ^= f[i];
+        f[19] = x;
+        return f;
+    }
+
+    public static String ptRealJson(java.util.List<byte[]> frames) {
+        StringBuilder sb = new StringBuilder("{\"msg\":{\"cmd\":\"ptReal\",\"data\":{\"command\":[");
+        for (int i = 0; i < frames.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append('"').append(Base64.getEncoder().encodeToString(frames.get(i))).append('"');
+        }
+        return sb.append("]}}}").toString();
+    }
+
+    /**
+     * Groups segments that share a color into one frame each. colors[i] is segment i+1.
+     * Entries equal to -1 are skipped (unchanged). Max 16 segments.
+     */
+    public static java.util.List<byte[]> segmentFrames(int[] colors) {
+        java.util.LinkedHashMap<Integer, Integer> masks = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < Math.min(16, colors.length); i++) {
+            if (colors[i] < 0) continue;
+            Integer m = masks.get(colors[i]);
+            masks.put(colors[i], (m == null ? 0 : m) | (1 << i));
+        }
+        java.util.List<byte[]> out = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<Integer, Integer> e : masks.entrySet()) {
+            out.add(segmentColorFrame(e.getKey(), e.getValue()));
+        }
+        return out;
+    }
+
     static byte[] frame(int cmd, byte[] data) {
         int len = data.length;
         byte[] out = new byte[4 + len + 1];

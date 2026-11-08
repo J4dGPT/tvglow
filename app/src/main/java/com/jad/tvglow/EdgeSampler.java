@@ -125,6 +125,14 @@ public final class EdgeSampler {
         return v < 0 ? 0 : v > 255 ? 255 : Math.round(v);
     }
 
+    /** Rounds each channel to a multiple of 8 so near-identical colors don't resend. */
+    public static int quantize(int c) {
+        int r = Math.min(255, (((c >> 16) & 0xFF) + 4) & ~7);
+        int g = Math.min(255, (((c >> 8) & 0xFF) + 4) & ~7);
+        int b = Math.min(255, ((c & 0xFF) + 4) & ~7);
+        return r << 16 | g << 8 | b;
+    }
+
     /** Average of a color list (for single-color mode). */
     public static int average(int[] c) {
         long r = 0, g = 0, b = 0;

@@ -74,12 +74,16 @@ public class MainActivity extends Activity {
 
         section(root, "Strip layout");
         LinearLayout row2 = row(root);
-        modeBtn = button(row2, "", v -> { settings.single = !settings.single; changed(); });
+        modeBtn = button(row2, "", v -> { settings.mode = (settings.mode + 1) % 3; settings.shift = 0; changed(); });
         sidesBtn = button(row2, "", v -> { settings.fourSides = !settings.fourSides; changed(); });
         reverseBtn = button(row2, "", v -> { settings.reverse = !settings.reverse; changed(); });
-        shiftBtn = button(row2, "", v -> { settings.shift = (settings.shift + 1) % settings.segments; changed(); });
+        shiftBtn = button(row2, "", v -> { settings.shift = (settings.shift + 1) % settings.zoneCount(); changed(); });
         segBtn = button(row2, "", v -> {
-            settings.segments = Settings.next(Settings.SEGMENT_OPTIONS, settings.segments);
+            if (settings.mode == Settings.MODE_SEGMENTS) {
+                settings.appSegments = Settings.next(Settings.APP_SEGMENT_OPTIONS, settings.appSegments);
+            } else {
+                settings.segments = Settings.next(Settings.SEGMENT_OPTIONS, settings.segments);
+            }
             settings.shift = 0;
             changed();
         });
@@ -243,15 +247,21 @@ public class MainActivity extends Activity {
             }
             try (GoveeClient c = new GoveeClient(ip)) {
                 c.turnOn();
-                c.razer(true);
-                int[] colors = EdgeSampler.order(EdgeSampler.testPattern(s.segments), s.reverse, s.shift);
-                for (int i = 0; i < 3; i++) {
-                    c.colors(colors, false);
+                int[] colors = EdgeSampler.order(EdgeSampler.testPattern(s.zoneCount()), s.reverse, s.shift);
+                if (s.mode == Settings.MODE_REALTIME) {
+                    c.razer(true);
+                    for (int i = 0; i < 3; i++) {
+                        c.colors(colors, false);
+                        Thread.sleep(150);
+                    }
+                } else {
+                    c.razer(false);
                     Thread.sleep(150);
+                    c.segments(colors);
                 }
                 ui.post(() -> {
                     ipField.setText(ip);
-                    local("Sent zone test to " + ip + ". Red should start at the bottom of the left side. Strip dark = this strip doesn't support zones; switch Mode to Single color.");
+                    local("Sent zone test to " + ip + ". Red should start at the bottom of the left side. Wrong length? Match Segments to the count in the Govee app.");
                 });
             } catch (Exception e) {
                 ui.post(() -> local("Test failed: " + e.getMessage()));
@@ -265,11 +275,11 @@ public class MainActivity extends Activity {
     }
 
     private void refreshLabels() {
-        modeBtn.setText("Mode: " + (settings.single ? "Single color" : "Zones"));
+        modeBtn.setText("Mode: " + Settings.MODE_NAMES[settings.mode]);
         sidesBtn.setText(settings.fourSides ? "Sides: 4 (full loop)" : "Sides: 3 (left, top, right)");
         reverseBtn.setText("Reverse: " + (settings.reverse ? "on" : "off"));
         shiftBtn.setText("Shift: " + settings.shift);
-        segBtn.setText("Zones: " + settings.segments);
+        segBtn.setText((settings.mode == Settings.MODE_SEGMENTS ? "Segments: " : "Zones: ") + settings.zoneCount());
         brightBtn.setText("Brightness: " + settings.brightness + "%");
         smoothBtn.setText("Motion: " + Settings.SMOOTH_NAMES[settings.smoothing]);
         fpsBtn.setText("Rate: " + settings.fps + "/s");

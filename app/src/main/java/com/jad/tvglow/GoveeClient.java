@@ -40,6 +40,15 @@ final class GoveeClient implements Closeable {
         send(GoveeProtocol.colorJson(rgb));
     }
 
+    /** Segment colors via ptReal. Batches up to 12 frames per message, 50 ms apart. */
+    void segments(int[] colors) throws IOException, InterruptedException {
+        java.util.List<byte[]> frames = GoveeProtocol.segmentFrames(colors);
+        for (int i = 0; i < frames.size(); i += 12) {
+            if (i > 0) Thread.sleep(50);
+            send(GoveeProtocol.ptRealJson(frames.subList(i, Math.min(frames.size(), i + 12))));
+        }
+    }
+
     void razer(boolean on) throws IOException {
         send(GoveeProtocol.razerJson(GoveeProtocol.razerEnable(on)));
     }
