@@ -80,6 +80,12 @@ final class Settings {
         s.calCyan = p.getInt("cubeCyan", 0);
         s.calMag = p.getInt("cubeMag", 0);
         s.calYel = p.getInt("cubeYel", 0);
+        // One-time retune: Large capture costs budget TVs processor time they need for video.
+        // Step it down to Medium once; it can still be picked again.
+        if (p.getInt("tune", 0) < 2) {
+            if (s.capture > 1) s.capture = 1;
+            p.edit().putInt("tune", 2).putInt("capture", s.capture).apply();
+        }
         return s;
     }
 

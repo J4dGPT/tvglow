@@ -24,20 +24,25 @@ import android.os.Process;
 import android.os.SystemClock;
 import android.widget.Toast;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Low-latency pipeline: mirror the screen into a small buffer, sample the edges, and push
- * colors to the strip straight from the capture thread the moment each frame lands.
+ * Screen sync pipeline: mirror the screen into a small buffer, sample the edges, and push
+ * colors to the strip straight from the capture thread.
+ *
+ * The video comes first. Budget TVs struggle to decode video and capture the screen at the
+ * same time, so the pipeline stays light:
+ *  - frames are read at the strip's update rate (Speed), not the video's: a 60 fps video at
+ *    Fast is read about 30 times a second, and the frame read is always the newest one
+ *  - the capture thread runs at normal priority, so video playback wins when the TV is busy
+ *  - packets only go out when a color visibly changed
  *
  * Latency work in here:
- *  - frames are processed and sent on arrival (no queue, no hop to another thread)
- *  - the capture thread runs at display priority
- *  - Wi-Fi power saving is switched off while syncing (low-latency Wi-Fi lock)
+ *  - a frame that is read is processed and sent at once (no queue, no hop to another thread)
+ *  - Wi-Fi power saving is switched off while syncing
  *  - App segments mode uses SegmentScheduler (whole-strip repaints first, detail after)
  *  - Turbo realtime sends all segments in one packet per frame
  *  - letterbox detection is stabilized so dark scenes don't make zones jump
@@ -66,7 +71,7 @@ public class CaptureService extends Service {
     private long connectedAt, lastProbe, lastScan, scanCheckAt;
     private boolean stripWarned, darkWarned;
     private volatile String stripNote = "";
-    private WifiManager.WifiLock perfLock, lowLatencyLock;
+    private WifiManager.WifiLock perfLock;
 
     private Settings settings;
     private int[] pixels, rowBuf;
@@ -80,9 +85,14 @@ public class CaptureService extends Service {
     private long lastSettingsLoad, lastKeepAlive, darkSince, lastSend, lastProcess;
     private int lastAvg;
 
+    // Frame pacing: the newest frame waits here until the read gap is up (see readGapMs)
+    private Image held;
+    private long lastReadAt;
+    private boolean drainPosted;
+
     // Stats for the status line
     private long statsSince;
-    private int frameCount, sendCount, cmdCount, lagN;
+    private int frameCount, readCount, sendCount, cmdCount, lagN;
     private double lagSum;
     private final float[] fpsHistory = new float[10];
     private int fpsIdx;
@@ -92,6 +102,7 @@ public class CaptureService extends Service {
         public void run() {
             long now = SystemClock.uptimeMillis();
             try {
+                reloadSettings(now); // so changes apply even while the picture is still
                 tick(now, false);
                 checkStrip(now);
             } catch (Exception ignored) {
@@ -142,16 +153,11 @@ public class CaptureService extends Service {
             return START_NOT_STICKY;
         }
 
-        captureThread = new HandlerThread("tvglow-capture");
+        // Normal priority on purpose: when the TV is short on processor time, video playback
+        // has to win over the lights, or the picture stutters.
+        captureThread = new HandlerThread("tvglow-capture", Process.THREAD_PRIORITY_DEFAULT);
         captureThread.start();
         handler = new Handler(captureThread.getLooper());
-        handler.post(() -> {
-            try {
-                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY);
-            } catch (Throwable ignored) {
-                // keep default priority if the system refuses
-            }
-        });
 
         projection.registerCallback(new MediaProjection.Callback() {
             @Override
@@ -199,20 +205,16 @@ public class CaptureService extends Service {
             perfLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "tvglow:perf");
             perfLock.setReferenceCounted(false);
             perfLock.acquire();
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                lowLatencyLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "tvglow:lowlatency");
-                lowLatencyLock.setReferenceCounted(false);
-                lowLatencyLock.acquire();
-            }
+            // No low-latency lock: Android only honors it while TV Glow itself is on screen,
+            // which is never the case while you're watching something.
         } catch (Throwable ignored) {
-            // locks are a bonus; sync works without them
+            // the lock is a bonus; sync works without it
         }
     }
 
     private void releaseWifiLocks() {
         try {
             if (perfLock != null && perfLock.isHeld()) perfLock.release();
-            if (lowLatencyLock != null && lowLatencyLock.isHeld()) lowLatencyLock.release();
         } catch (Throwable ignored) {
         }
     }
@@ -271,19 +273,58 @@ public class CaptureService extends Service {
         });
     }
 
+    /**
+     * A screen frame landed. Keep it (dropping any older one still waiting) and read it as soon
+     * as the read gap is up. Reading every frame of a 60 fps video costs a budget TV processor
+     * time it needs for the video itself.
+     */
     private void onImage(ImageReader r) {
-        Image img = r.acquireLatestImage();
-        if (img == null) return;
+        if (held != null) {
+            held.close(); // superseded by the frame that just landed
+            held = null;
+        }
+        Image img;
         try {
-            long now = SystemClock.uptimeMillis();
-            reloadSettings(now);
-            long lagNs = System.nanoTime() - img.getTimestamp();
-            if (lagNs > 0 && lagNs < 1_000_000_000L) {
-                lagSum += lagNs / 1e6;
-                lagN++;
+            img = r.acquireLatestImage();
+        } catch (IllegalStateException e) {
+            return; // the reader is shutting down
+        }
+        if (img == null) return;
+        held = img;
+        long now = SystemClock.uptimeMillis();
+        frameCount++;
+        long lagNs = System.nanoTime() - img.getTimestamp();
+        if (lagNs > 0 && lagNs < 1_000_000_000L) {
+            lagSum += lagNs / 1e6;
+            lagN++;
+        }
+        reloadSettings(now);
+        updateStats(now);
+        long wait = readGapMs() - (now - lastReadAt);
+        if (wait > 0) {
+            if (!drainPosted) {
+                drainPosted = true;
+                handler.postDelayed(drain, wait);
             }
-            frameCount++;
-            updateStats(now);
+            return;
+        }
+        readHeld(now);
+    }
+
+    /** Reads the newest waiting frame once the gap is up, so the last change is never missed. */
+    private final Runnable drain = () -> {
+        drainPosted = false;
+        if (running && held != null) readHeld(SystemClock.uptimeMillis());
+    };
+
+    /** Samples the waiting frame and sends the result right away. */
+    private void readHeld(long now) {
+        Image img = held;
+        held = null;
+        if (img == null) return;
+        lastReadAt = now;
+        readCount++;
+        try {
             if (!connected()) return;
             Image.Plane plane = img.getPlanes()[0];
             rowBuf = FrameCopier.copy(plane.getBuffer(), plane.getPixelStride(), plane.getRowStride(),
@@ -293,6 +334,28 @@ public class CaptureService extends Service {
             img.close(); // hand the buffer back before sending so the next frame is never blocked
         }
         tick(SystemClock.uptimeMillis(), true);
+    }
+
+    /**
+     * Shortest time between frames we read: just under the strip's update interval for the
+     * chosen Speed, so a 30 fps video at Fast is still read frame by frame.
+     */
+    private long readGapMs() {
+        Settings s = settings;
+        if (s == null) return 30;
+        int fps;
+        switch (s.mode) {
+            case Settings.MODE_SINGLE:
+                fps = 12;
+                break;
+            case Settings.MODE_WLED:
+                fps = Settings.WLED_FPS[s.speedIdx()];
+                break;
+            default:
+                fps = Settings.RT_FPS[s.speedIdx()];
+                break;
+        }
+        return Math.round(900f / fps);
     }
 
     private void reloadSettings(long now) {
@@ -352,10 +415,12 @@ public class CaptureService extends Service {
                     : String.format(Locale.US, "%.0f updates/s", sendCount / secs);
             String lag = lagN > 0 ? String.format(Locale.US, " · capture lag %.0f ms", lagSum / lagN) : "";
             String health = monitor == null ? "" : stripNote.isEmpty() ? " · strip answering ✓" : stripNote;
-            status = String.format(Locale.US, "%s · screen %.0f fps (30s avg %.1f)%s · strip %s%s",
-                    Settings.MODE_NAMES[Math.max(0, Math.min(3, s.mode))], frameCount / secs, avg, lag, strip, health);
+            status = String.format(Locale.US, "%s · screen %.0f fps (30s avg %.1f) · reading %.0f/s%s · strip %s%s",
+                    Settings.MODE_NAMES[Math.max(0, Math.min(3, s.mode))], frameCount / secs, avg,
+                    readCount / secs, lag, strip, health);
         }
         frameCount = 0;
+        readCount = 0;
         sendCount = 0;
         cmdCount = 0;
         lagSum = 0;
@@ -541,7 +606,7 @@ public class CaptureService extends Service {
 
         try {
             if (mode == Settings.MODE_SEGMENTS) {
-                sendSegments(gc, ordered, s, now);
+                sendSegments(gc, ordered, s, now, fresh);
             } else if (mode == Settings.MODE_SINGLE) {
                 if (now - lastSend >= 90) {
                     gc.color(correction.apply(EdgeSampler.average(out)));
@@ -561,9 +626,11 @@ public class CaptureService extends Service {
         int rate = toWled ? Settings.WLED_FPS[s.speedIdx()] : Settings.RT_FPS[s.speedIdx()];
         float interval = 1000f / rate;
         long gap = now - lastSend;
-        if (gap < (fresh ? interval * 0.5f : interval)) return;
+        // A fresh frame may go out a little early; timer ticks keep the plain interval.
+        if (gap < (fresh ? interval * 0.8f : interval)) return;
         boolean keepAlive = !toWled && now - lastKeepAlive > 10000;
-        if (Arrays.equals(ordered, lastSentColors) && gap < 500 && !keepAlive) return; // nothing new
+        // Nothing visibly new: skip the packet (less Wi-Fi traffic next to the video stream).
+        if (nearlySame(ordered, lastSentColors) && gap < 500 && !keepAlive) return;
         if (toWled) {
             wc.send(WledProtocol.upsample(ordered, Math.max(1, s.ledCount), s.sideCounts()[3] > 0));
         } else {
@@ -577,8 +644,26 @@ public class CaptureService extends Service {
         markSent(now, 1);
     }
 
+    /**
+     * True when no zone moved more than a step or two since the last packet (one step in dark
+     * colors, where a single step is easier to see).
+     */
+    static boolean nearlySame(int[] a, int[] b) {
+        if (a == null || b == null || a.length != b.length) return false;
+        for (int i = 0; i < a.length; i++) {
+            for (int sh = 0; sh <= 16; sh += 8) {
+                int x = (a[i] >> sh) & 0xFF, y = (b[i] >> sh) & 0xFF;
+                if (Math.abs(x - y) > (Math.max(x, y) < 48 ? 1 : 2)) return false;
+            }
+        }
+        return true;
+    }
+
     /** App segments: let the scheduler spend the command budget where it matters most. */
-    private void sendSegments(GoveeClient gc, int[] ordered, Settings s, long now) throws Exception {
+    private void sendSegments(GoveeClient gc, int[] ordered, Settings s, long now, boolean fresh) throws Exception {
+        // Same packet pacing as Turbo; the scheduler packs more commands into each packet instead.
+        float interval = 1000f / Settings.RT_FPS[s.speedIdx()];
+        if (now - lastSend < (fresh ? interval * 0.8f : interval)) return;
         int n = Math.min(16, ordered.length);
         int g = Settings.DETAIL_GROUP[Math.max(0, Math.min(2, s.detail))];
         int[] tgt = new int[n];
@@ -614,12 +699,17 @@ public class CaptureService extends Service {
                 && !status.startsWith("WLED mode needs")) {
             status = "Stopped";
         }
-        if (handler != null) handler.removeCallbacks(ticker);
-        if (display != null) display.release();
-        if (reader != null) reader.close();
-        if (projection != null) projection.stop();
-        if (captureThread != null) captureThread.quitSafely();
         releaseWifiLocks();
+        // Frames are only ever touched on the capture thread, so tear capture down there too:
+        // a frame being read can't race with the reader closing under it.
+        final Handler h = handler;
+        if (h != null) {
+            h.removeCallbacks(ticker);
+            h.removeCallbacks(drain);
+            h.post(this::releaseCapture);
+        } else {
+            releaseCapture();
+        }
         final GoveeClient c = client;
         final WledClient w = wled;
         final StripMonitor m = monitor;
@@ -645,5 +735,17 @@ public class CaptureService extends Service {
         });
         net.shutdown();
         super.onDestroy();
+    }
+
+    private void releaseCapture() {
+        try {
+            if (held != null) held.close();
+        } catch (Throwable ignored) {
+        }
+        held = null;
+        if (display != null) display.release();
+        if (reader != null) reader.close();
+        if (projection != null) projection.stop();
+        if (captureThread != null) captureThread.quitSafely();
     }
 }

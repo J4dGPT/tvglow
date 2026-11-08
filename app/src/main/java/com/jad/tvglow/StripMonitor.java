@@ -64,6 +64,11 @@ final class StripMonitor implements Closeable {
                 continue;
             } catch (IOException e) {
                 if (!open) return;
+                try {
+                    Thread.sleep(200); // a broken socket fails instantly; don't spin the processor
+                } catch (InterruptedException ie) {
+                    return;
+                }
                 continue;
             }
             String from = p.getAddress().getHostAddress();

@@ -125,9 +125,9 @@ public class MainActivity extends Activity {
             settings.smoothing = 3;  // Instant: no smoothing delay
             settings.detail = 0;     // full detail; the scheduler repaints big areas first
             settings.speed = 1;      // Fast
-            settings.capture = 2;    // Large
+            settings.capture = 1;    // Medium: plenty for 12 zones and light on the TV
             changed();
-            local("Live preset on: Instant motion, full detail, Fast. Restart sync to apply.");
+            local("Live preset on: Instant motion, full detail, Fast, Medium capture. Restart sync to apply.");
         }, false);
 
         // Connection
@@ -204,7 +204,9 @@ public class MainActivity extends Activity {
         captureBtn = button(r, "", v -> {
             settings.capture = (settings.capture + 1) % 3;
             changed();
-            if (CaptureService.running) local("Capture size applies next time you press Start sync.");
+            String note = settings.capture == 2 ? "Large is heavier on the TV. If videos stutter, go back to Medium. " : "";
+            if (CaptureService.running) note += "Capture size applies next time you press Start sync.";
+            if (!note.isEmpty()) local(note.trim());
         }, false);
         gradBtn = button(r, "", v -> { settings.gradient = !settings.gradient; changed(); }, false);
         r = row(look);

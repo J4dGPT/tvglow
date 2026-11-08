@@ -83,11 +83,13 @@ TV Glow streams WLED's realtime UDP protocol (DRGB/DNRGB, port 21324). WLED goes
 
 ## Latency engineering
 
-- Frames are processed and sent the moment they arrive, from a display-priority thread.
-- Wi-Fi power save is disabled while syncing (low-latency Wi-Fi lock).
+- The video comes first. Budget TVs struggle to decode video and capture the screen at the same time, so frames are read at the strip's update rate (set by **Speed**), not the video's: a 60 fps video at Fast is read about 30 times a second, always the newest frame. The capture thread runs at normal priority, so playback wins when the TV is busy, and packets only go out when a color visibly changed.
+- A frame that is read is processed and sent at once, with no queue in between.
+- Wi-Fi power save is disabled while syncing.
 - App segments mode uses an error-driven scheduler: each Govee command can paint any set of segments, so scene changes repaint the whole strip in one command and detail fills in next, within a token-bucket budget the strip can absorb without queueing.
 - Letterbox detection ignores subtitles and only moves after the bars are stable, so dark scenes don't make zones jump.
-- **Speed** sets how hard the strip is driven (Safe, Fast, Turbo, Max). If the lights start trailing the picture, step down one level.
+- **Speed** sets how hard the strip and the TV are driven (Safe, Fast, Turbo, Max). If the lights start trailing the picture, step down one level.
+- **Videos stutter while syncing?** Use Speed Safe or Fast and Capture Small or Medium. Large capture and Max speed cost the most.
 
 ## Accurate colors
 

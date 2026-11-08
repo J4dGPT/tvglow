@@ -420,7 +420,7 @@ public class SetupActivity extends Activity {
         s.smoothing = 3; // Instant: lowest delay
         s.detail = 0;
         s.speed = 1;
-        s.capture = 2;
+        s.capture = 1; // Medium: plenty for the zones, light enough that video stays smooth
         s.gradient = false;
         s.setupDone = true;
         s.save(this);
