@@ -73,6 +73,14 @@ public class MainActivity extends Activity {
         button(row1, "Test LAN (red)", v -> testLan());
         button(row1, "Test zones", v -> testPattern(false));
         button(row1, "Test sides", v -> testPattern(true));
+        button(row1, "Live preset", v -> {
+            settings.smoothing = 3;  // Instant
+            settings.detail = 2;     // 4 zones: every zone updates every tick
+            settings.fps = 20;
+            settings.capture = 2;    // Large
+            changed();
+            local("Live preset: Instant motion, 4 zones, 20/s. Try Rate 30/s for even less delay. Restart sync to apply capture size.");
+        });
 
         section(root, "Strip layout");
         LinearLayout row2 = row(root);
@@ -113,7 +121,7 @@ public class MainActivity extends Activity {
             if (CaptureService.running) local("Capture size applies next time you press Start sync.");
         });
         brightBtn = button(row3, "", v -> { settings.brightness = Settings.next(Settings.BRIGHTNESS_OPTIONS, settings.brightness); changed(); });
-        smoothBtn = button(row3, "", v -> { settings.smoothing = (settings.smoothing + 1) % 3; changed(); });
+        smoothBtn = button(row3, "", v -> { settings.smoothing = (settings.smoothing + 1) % 4; changed(); });
         fpsBtn = button(row3, "", v -> { settings.fps = Settings.next(Settings.FPS_OPTIONS, settings.fps); changed(); });
         gradBtn = button(row3, "", v -> { settings.gradient = !settings.gradient; changed(); });
 

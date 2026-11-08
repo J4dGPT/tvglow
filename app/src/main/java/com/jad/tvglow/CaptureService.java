@@ -275,7 +275,7 @@ public class CaptureService extends Service {
                 smoothed[i * 3 + 2] = target[i] & 0xFF;
             }
         }
-        float base = Settings.SMOOTH_ALPHA[Math.max(0, Math.min(2, s.smoothing))];
+        float base = Settings.SMOOTH_ALPHA[Math.max(0, Math.min(3, s.smoothing))];
         boolean sceneCut = EdgeSampler.colorDistance(EdgeSampler.average(target), lastAvg) > 110;
         lastAvg = EdgeSampler.average(target);
         int[] out = new int[n];

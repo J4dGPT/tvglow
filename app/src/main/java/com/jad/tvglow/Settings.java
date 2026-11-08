@@ -13,8 +13,8 @@ final class Settings {
     static final int[] DETAIL_GROUP = {1, 2, 3};
     static final String[] DETAIL_NAMES = {"Max", "Balanced", "Smoothest"};
     static final int[] BRIGHTNESS_OPTIONS = {40, 60, 80, 100};
-    static final String[] SMOOTH_NAMES = {"Fast", "Balanced", "Smooth"};
-    static final float[] SMOOTH_ALPHA = {0.85f, 0.55f, 0.3f}; // original speeds
+    static final String[] SMOOTH_NAMES = {"Fast", "Balanced", "Smooth", "Instant"};
+    static final float[] SMOOTH_ALPHA = {0.85f, 0.55f, 0.3f, 1f}; // original speeds + no smoothing
 
     int segments = 20;
     boolean fourSides = false;
