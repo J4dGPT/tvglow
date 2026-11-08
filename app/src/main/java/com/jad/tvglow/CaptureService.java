@@ -51,7 +51,8 @@ public class CaptureService extends Service {
     private int[] pixels = new int[W * H];
     private float[] smoothed;
     private long lastFrame, lastSettingsLoad, lastKeepAlive, darkSince, lastFull, lastSend, lastProcess;
-    private int lastAvg;
+    private int lastAvg, refreshIdx, frameCount, sendCount;
+    private long statsSince;
     private int[] lastSentSeg;
 
     @Override
@@ -161,6 +162,18 @@ public class CaptureService extends Service {
             }
             if (now - lastFrame < 30) return; // capture ~30/s; send rate is separate
             lastFrame = now;
+            frameCount++;
+            if (statsSince == 0) statsSince = now;
+            if (now - statsSince >= 3000) {
+                float secs = (now - statsSince) / 1000f;
+                if (darkSince == 0 && client != null) {
+                    status = String.format(java.util.Locale.US, "Syncing to %s | screen %.0f fps | strip %.0f updates/s",
+                            settings.ip, frameCount / secs, sendCount / secs);
+                }
+                frameCount = 0;
+                sendCount = 0;
+                statsSince = now;
+            }
             if (client == null) return;
 
             copyPixels(img);
@@ -247,27 +260,38 @@ public class CaptureService extends Service {
 
         int[] seg = null;
         if (mode == Settings.MODE_SEGMENTS) {
-            boolean full = true; // resend every segment each tick so a dropped packet never leaves a stale zone
-            if (full) {
-                lastFull = now;
+            // Command budget: the strip processes each segment command in turn, so flooding
+            // it builds a queue (delay) that then drains in bursts (choppiness). Send only the
+            // segments that changed most, plus one rotating refresh.
+            if (lastSentSeg == null || lastSentSeg.length != n) {
                 lastSentSeg = new int[n];
                 java.util.Arrays.fill(lastSentSeg, -2);
             }
+            int budget = 4; // Rate 10/15/20 => ~40/60/80 segment commands per second
             seg = new int[n];
-            boolean any = false;
+            java.util.Arrays.fill(seg, -1);
+            float[] dist = new float[n];
             for (int i = 0; i < n; i++) {
-                int q = ordered[i];
-                if (q == lastSentSeg[i]) {
-                    seg[i] = -1;
-                } else {
-                    seg[i] = q;
-                    any = true;
-                }
+                dist[i] = lastSentSeg[i] < 0 ? 999f : EdgeSampler.colorDistance(ordered[i], lastSentSeg[i]);
             }
-            if (!any) return;
+            int picked = 0;
+            for (int k = 0; k < budget; k++) {
+                int best = -1;
+                float bestD = 6f; // ignore changes too small to see
+                for (int i = 0; i < n; i++) {
+                    if (seg[i] < 0 && dist[i] > bestD) { bestD = dist[i]; best = i; }
+                }
+                if (best < 0) break;
+                seg[best] = ordered[best];
+                picked++;
+            }
+            refreshIdx = (refreshIdx + 1) % n; // keeps every zone fresh if a packet was lost
+            if (seg[refreshIdx] < 0) { seg[refreshIdx] = ordered[refreshIdx]; picked++; }
+            if (picked == 0) return;
         }
         if (!sending.compareAndSet(false, true)) return; // drop frame if network is busy
         lastSend = now;
+        sendCount++;
         if (seg != null) {
             for (int i = 0; i < n; i++) if (seg[i] >= 0) lastSentSeg[i] = seg[i];
         }
