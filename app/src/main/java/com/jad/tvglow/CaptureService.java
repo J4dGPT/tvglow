@@ -207,6 +207,7 @@ public class CaptureService extends Service {
 
             copyPixels(img);
             latestTarget = computeTarget(now);
+            tick(now); // send right away on a fresh frame instead of waiting for the next timer tick
         } finally {
             img.close();
         }

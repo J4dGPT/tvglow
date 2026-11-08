@@ -3,7 +3,11 @@ package com.jad.tvglow;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.media.projection.MediaProjectionManager;
 import android.os.Bundle;
 import android.os.Handler;
@@ -32,11 +36,21 @@ public class MainActivity extends Activity {
     private Button captureBtn, detailBtn, styleBtn, modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
     private EditText ipField;
 
+    // Palette: deep night background, pink-to-purple glow accent (matches the wall).
+    private static final int BG = 0xFF0B0B12, CARD = 0xFF15151F, BTN = 0xFF1F1F2E, BTN_EDGE = 0xFF2C2C40;
+    private static final int TEXT = 0xFFECECF4, MUTED = 0xFF8C8CA3, ACCENT_A = 0xFFFF4FD8, ACCENT_B = 0xFF7C4DFF;
+    private static final int LIVE = 0xFF3BE38B, IDLE = 0xFF5A5A70;
+
+    private TextView dotView, statusTitle;
+
     private final Runnable poll = new Runnable() {
         @Override
         public void run() {
+            boolean on = CaptureService.running;
             String s = localStatus != null ? localStatus : CaptureService.status;
-            statusView.setText((CaptureService.running ? "RUNNING  |  " : "") + s);
+            statusTitle.setText(on ? "Syncing" : "Not syncing");
+            ((GradientDrawable) dotView.getBackground()).setColor(on ? LIVE : IDLE);
+            statusView.setText(s);
             ui.postDelayed(this, 500);
         }
     };
@@ -47,48 +61,92 @@ public class MainActivity extends Activity {
         settings = Settings.load(this);
 
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(Color.rgb(14, 14, 22));
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(36);
-        root.setPadding(pad, dp(24), pad, dp(24));
-        scroll.addView(root);
+        scroll.setBackgroundColor(BG);
+        scroll.setClipChildren(false);
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.HORIZONTAL);
+        page.setPadding(dp(40), dp(28), dp(40), dp(28));
+        page.setClipChildren(false);
+        scroll.addView(page);
 
-        TextView title = new TextView(this);
-        title.setText("TV Glow");
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
-        title.setTextColor(Color.WHITE);
-        root.addView(title);
+        LinearLayout left = column(page, 1f);
+        spacer(page, dp(24));
+        LinearLayout right = column(page, 1.35f);
 
-        statusView = new TextView(this);
-        statusView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        statusView.setTextColor(Color.rgb(255, 120, 220));
-        statusView.setPadding(0, dp(8), 0, dp(16));
-        root.addView(statusView);
+        // Header + status
+        TextView title = text(left, "TV Glow", 34, TEXT, true);
+        title.setLetterSpacing(0.02f);
+        text(left, "Your wall, synced to your screen", 15, MUTED, false).setPadding(0, 0, 0, dp(18));
 
-        LinearLayout row1 = row(root);
-        Button start = button(row1, "Start sync", v -> requestCapture());
-        button(row1, "Stop", v -> stopAll());
-        button(row1, "Find strip", v -> findStrip());
-        button(row1, "Test LAN (red)", v -> testLan());
-        button(row1, "Test zones", v -> testPattern(false));
-        button(row1, "Test sides", v -> testPattern(true));
-        button(row1, "Live preset", v -> {
+        LinearLayout statusCard = card(left);
+        LinearLayout statusRow = new LinearLayout(this);
+        statusRow.setOrientation(LinearLayout.HORIZONTAL);
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        statusCard.addView(statusRow);
+        dotView = new TextView(this);
+        GradientDrawable dot = new GradientDrawable();
+        dot.setShape(GradientDrawable.OVAL);
+        dot.setColor(IDLE);
+        dotView.setBackground(dot);
+        statusRow.addView(dotView, new LinearLayout.LayoutParams(dp(12), dp(12)));
+        spacer(statusRow, dp(10));
+        statusTitle = text(statusRow, "Not syncing", 20, TEXT, true);
+        statusView = text(statusCard, "", 14, MUTED, false);
+        statusView.setPadding(0, dp(8), 0, 0);
+
+        // Sync
+        LinearLayout sync = card(left);
+        heading(sync, "SYNC");
+        LinearLayout r = row(sync);
+        Button start = button(r, "Start sync", v -> requestCapture(), true);
+        button(r, "Stop", v -> stopAll(), false);
+        r = row(sync);
+        button(r, "Live preset", v -> {
             settings.smoothing = 3;  // Instant
             settings.detail = 2;     // 4 zones: every zone updates every tick
-            settings.fps = 20;
+            settings.fps = 30;
             settings.capture = 2;    // Large
             changed();
-            local("Live preset: Instant motion, 4 zones, 20/s. Try Rate 30/s for even less delay. Restart sync to apply capture size.");
-        });
+            local("Live preset on: Instant motion, 4 zones, 30/s. Restart sync to apply. If it starts lagging, set Rate to 20.");
+        }, false);
 
-        section(root, "Strip layout");
-        LinearLayout row2 = row(root);
-        modeBtn = button(row2, "", v -> { settings.mode = (settings.mode + 1) % 3; settings.shift = 0; changed(); });
-        sidesBtn = button(row2, "", v -> { settings.fourSides = !settings.fourSides; changed(); });
-        reverseBtn = button(row2, "", v -> { settings.reverse = !settings.reverse; changed(); });
-        shiftBtn = button(row2, "", v -> { settings.shift = (settings.shift + 1) % Math.max(1, total(settings.sideCounts())); changed(); });
-        segBtn = button(row2, "", v -> {
+        // Connection
+        LinearLayout conn = card(left);
+        heading(conn, "CONNECTION");
+        ipField = new EditText(this);
+        ipField.setInputType(InputType.TYPE_CLASS_TEXT);
+        ipField.setTextColor(TEXT);
+        ipField.setHint("Strip address, blank = auto-find");
+        ipField.setHintTextColor(MUTED);
+        ipField.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        ipField.setText(settings.ip);
+        ipField.setBackground(fieldBg());
+        ipField.setPadding(dp(16), dp(12), dp(16), dp(12));
+        conn.addView(ipField, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        r = row(conn);
+        button(r, "Save", v -> {
+            settings.ip = ipField.getText().toString().trim();
+            changed();
+            local(settings.ip.isEmpty() ? "Address cleared, will auto-find" : "Saved " + settings.ip);
+        }, false);
+        button(r, "Find strip", v -> findStrip(), false);
+        button(r, "Test LAN", v -> testLan(), false);
+
+        TextView help = text(left, "Netflix, Disney+ and HDMI inputs can't be captured. YouTube, Plex, TiviMate and games work.", 13, MUTED, false);
+        help.setPadding(dp(4), dp(14), dp(4), 0);
+
+        // Calibrate
+        LinearLayout cal = card(right);
+        heading(cal, "CALIBRATE");
+        r = row(cal);
+        button(r, "Test zones", v -> testPattern(false), false);
+        button(r, "Test sides", v -> testPattern(true), false);
+        modeBtn = button(r, "", v -> { settings.mode = (settings.mode + 1) % 3; settings.shift = 0; changed(); }, false);
+        r = row(cal);
+        sidesBtn = button(r, "", v -> { settings.fourSides = !settings.fourSides; changed(); }, false);
+        reverseBtn = button(r, "", v -> { settings.reverse = !settings.reverse; changed(); }, false);
+        shiftBtn = button(r, "", v -> { settings.shift = (settings.shift + 1) % Math.max(1, total(settings.sideCounts())); changed(); }, false);
+        segBtn = button(r, "", v -> {
             if (settings.mode == Settings.MODE_SEGMENTS) {
                 settings.appSegments = Settings.next(Settings.APP_SEGMENT_OPTIONS, settings.appSegments);
             } else {
@@ -96,60 +154,37 @@ public class MainActivity extends Activity {
             }
             settings.shift = 0;
             changed();
-        });
-
-        section(root, "Segments per side (Test sides: left red, top green, right blue, bottom white)");
-        LinearLayout rowSides = row(root);
+        }, false);
+        text(cal, "Segments per side (* = auto)  ·  test: left red, top green, right blue, bottom white", 13, MUTED, false)
+                .setPadding(dp(2), dp(14), 0, dp(2));
+        r = row(cal);
         String[] sideNames = {"Left", "Top", "Right", "Bottom"};
         for (int i = 0; i < 4; i++) {
             final int side = i;
-            sideBtns[i] = button(rowSides, sideNames[i], v -> {
+            sideBtns[i] = button(r, sideNames[i], v -> {
                 if (!settings.customSides()) settings.sides = settings.sideCounts();
                 settings.sides[side] = (settings.sides[side] + 1) % 9;
                 changed();
-            });
+            }, false);
         }
-        button(rowSides, "Auto", v -> { settings.sides = new int[]{0, 0, 0, 0}; changed(); });
+        button(r, "Auto", v -> { settings.sides = new int[]{0, 0, 0, 0}; changed(); }, false);
 
-        section(root, "Look");
-        LinearLayout row3 = row(root);
-        styleBtn = button(row3, "", v -> { settings.style = (settings.style + 1) % 3; changed(); });
-        detailBtn = button(row3, "", v -> { settings.detail = (settings.detail + 1) % 3; changed(); });
-        captureBtn = button(row3, "", v -> {
+        // Look
+        LinearLayout look = card(right);
+        heading(look, "LOOK");
+        r = row(look);
+        styleBtn = button(r, "", v -> { settings.style = (settings.style + 1) % 3; changed(); }, false);
+        brightBtn = button(r, "", v -> { settings.brightness = Settings.next(Settings.BRIGHTNESS_OPTIONS, settings.brightness); changed(); }, false);
+        smoothBtn = button(r, "", v -> { settings.smoothing = (settings.smoothing + 1) % 4; changed(); }, false);
+        r = row(look);
+        fpsBtn = button(r, "", v -> { settings.fps = Settings.next(Settings.FPS_OPTIONS, settings.fps); changed(); }, false);
+        detailBtn = button(r, "", v -> { settings.detail = (settings.detail + 1) % 3; changed(); }, false);
+        captureBtn = button(r, "", v -> {
             settings.capture = (settings.capture + 1) % 3;
             changed();
             if (CaptureService.running) local("Capture size applies next time you press Start sync.");
-        });
-        brightBtn = button(row3, "", v -> { settings.brightness = Settings.next(Settings.BRIGHTNESS_OPTIONS, settings.brightness); changed(); });
-        smoothBtn = button(row3, "", v -> { settings.smoothing = (settings.smoothing + 1) % 4; changed(); });
-        fpsBtn = button(row3, "", v -> { settings.fps = Settings.next(Settings.FPS_OPTIONS, settings.fps); changed(); });
-        gradBtn = button(row3, "", v -> { settings.gradient = !settings.gradient; changed(); });
-
-        section(root, "Strip address (leave blank to auto-find)");
-        LinearLayout row4 = row(root);
-        ipField = new EditText(this);
-        ipField.setInputType(InputType.TYPE_CLASS_TEXT);
-        ipField.setTextColor(Color.WHITE);
-        ipField.setHint("e.g. 192.168.1.50");
-        ipField.setHintTextColor(Color.GRAY);
-        ipField.setMinWidth(dp(260));
-        ipField.setText(settings.ip);
-        row4.addView(ipField);
-        button(row4, "Save address", v -> {
-            settings.ip = ipField.getText().toString().trim();
-            changed();
-            local(settings.ip.isEmpty() ? "Address cleared, will auto-find" : "Saved " + settings.ip);
-        });
-
-        TextView help = new TextView(this);
-        help.setTextColor(Color.LTGRAY);
-        help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        help.setPadding(0, dp(20), 0, 0);
-        help.setText("Start sync, allow screen capture, then press Home and play something.\n"
-                + "Test LAN turns the whole strip red (checks the connection). Test zones: red at the bottom of the LEFT side, fading to blue. "
-                + "If red is on the right, toggle Reverse. Use Shift to nudge where the colors start.\n"
-                + "Netflix, Disney+ and HDMI inputs can't be captured; YouTube, Plex, MX Player and games work.");
-        root.addView(help);
+        }, false);
+        gradBtn = button(r, "", v -> { settings.gradient = !settings.gradient; changed(); }, false);
 
         setContentView(scroll);
         refreshLabels();
@@ -315,23 +350,23 @@ public class MainActivity extends Activity {
     private void refreshLabels() {
         int[] sc = settings.sideCounts();
         String[] sn = {"Left", "Top", "Right", "Bottom"};
-        String tag = settings.customSides() ? "" : " (auto)";
-        for (int i = 0; i < 4; i++) sideBtns[i].setText(sn[i] + ": " + sc[i] + tag);
+        String tag = settings.customSides() ? "" : "*";
+        for (int i = 0; i < 4; i++) sideBtns[i].setText(sn[i] + " " + sc[i] + tag);
         if (settings.customSides() && total(sc) != settings.zoneCount()) {
             local("Per-side counts add up to " + total(sc) + " but Segments is " + settings.zoneCount() + ". Make them match.");
         }
-        captureBtn.setText("Capture: " + new String[]{"Small", "Medium", "Large"}[settings.capture]);
-        detailBtn.setText("Detail: " + Settings.DETAIL_NAMES[settings.detail]);
-        styleBtn.setText("Style: " + Settings.STYLE_NAMES[settings.style]);
-        modeBtn.setText("Mode: " + Settings.MODE_NAMES[settings.mode]);
-        sidesBtn.setText(settings.fourSides ? "Sides: 4 (full loop)" : "Sides: 3 (left, top, right)");
-        reverseBtn.setText("Reverse: " + (settings.reverse ? "on" : "off"));
-        shiftBtn.setText("Shift: " + settings.shift);
-        segBtn.setText((settings.mode == Settings.MODE_SEGMENTS ? "Segments: " : "Zones: ") + settings.zoneCount());
-        brightBtn.setText("Brightness: " + settings.brightness + "%");
-        smoothBtn.setText("Motion: " + Settings.SMOOTH_NAMES[settings.smoothing]);
-        fpsBtn.setText("Rate: " + settings.fps + "/s");
-        gradBtn.setText("Blend zones: " + (settings.gradient ? "on" : "off"));
+        captureBtn.setText("Capture\n" + new String[]{"Small", "Medium", "Large"}[settings.capture]);
+        detailBtn.setText("Detail\n" + Settings.DETAIL_NAMES[settings.detail]);
+        styleBtn.setText("Style\n" + Settings.STYLE_NAMES[settings.style]);
+        modeBtn.setText("Mode\n" + Settings.MODE_NAMES[settings.mode]);
+        sidesBtn.setText(settings.fourSides ? "Loop\n4 sides" : "Loop\n3 sides");
+        reverseBtn.setText("Reverse\n" + (settings.reverse ? "On" : "Off"));
+        shiftBtn.setText("Shift\n" + settings.shift);
+        segBtn.setText((settings.mode == Settings.MODE_SEGMENTS ? "Segments\n" : "Zones\n") + settings.zoneCount());
+        brightBtn.setText("Brightness\n" + settings.brightness + "%");
+        smoothBtn.setText("Motion\n" + Settings.SMOOTH_NAMES[settings.smoothing]);
+        fpsBtn.setText("Rate\n" + settings.fps + "/s");
+        gradBtn.setText("Blend\n" + (settings.gradient ? "On" : "Off"));
     }
 
     private void local(String s) {
@@ -339,30 +374,107 @@ public class MainActivity extends Activity {
         statusView.setText(s);
     }
 
+    private LinearLayout column(LinearLayout parent, float weight) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setClipChildren(false);
+        parent.addView(c, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight));
+        return c;
+    }
+
+    private void spacer(LinearLayout parent, int px) {
+        parent.addView(new View(this), new LinearLayout.LayoutParams(px, px));
+    }
+
+    private LinearLayout card(LinearLayout parent) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setClipChildren(false);
+        c.setClipToPadding(false);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(CARD);
+        bg.setCornerRadius(dp(20));
+        c.setBackground(bg);
+        c.setPadding(dp(20), dp(16), dp(20), dp(18));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(16);
+        parent.addView(c, lp);
+        return c;
+    }
+
+    private void heading(LinearLayout card, String label) {
+        TextView t = text(card, label, 12, MUTED, true);
+        t.setLetterSpacing(0.18f);
+        t.setPadding(dp(2), 0, 0, dp(6));
+    }
+
+    private TextView text(LinearLayout parent, String s, int sp, int color, boolean bold) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        t.setTextColor(color);
+        if (bold) t.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        parent.addView(t);
+        return t;
+    }
+
     private LinearLayout row(LinearLayout parent) {
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setClipChildren(false);
+        r.setClipToPadding(false);
+        r.setPadding(0, dp(6), 0, dp(6));
         parent.addView(r);
         return r;
     }
 
-    private void section(LinearLayout parent, String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextColor(Color.GRAY);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        t.setPadding(0, dp(18), 0, dp(4));
-        parent.addView(t);
+    private GradientDrawable rounded(int fill, int stroke, int strokeW) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(fill);
+        d.setCornerRadius(dp(14));
+        if (strokeW > 0) d.setStroke(strokeW, stroke);
+        return d;
     }
 
-    private Button button(LinearLayout parent, String text, View.OnClickListener l) {
+    private GradientDrawable fieldBg() {
+        return rounded(BTN, BTN_EDGE, dp(1));
+    }
+
+    /** TV button: unmistakable focus (glow fill, white outline, slight zoom). */
+    private Button button(LinearLayout parent, String text, View.OnClickListener l, boolean primary) {
         Button btn = new Button(this);
         btn.setText(text);
         btn.setAllCaps(false);
+        btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        btn.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         btn.setOnClickListener(l);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        btn.setPadding(dp(14), dp(12), dp(14), dp(12));
+        btn.setMinHeight(dp(52));
+        btn.setStateListAnimator(null);
+
+        GradientDrawable focused = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{ACCENT_A, ACCENT_B});
+        focused.setCornerRadius(dp(14));
+        focused.setStroke(dp(3), Color.WHITE);
+        GradientDrawable normal = primary
+                ? rounded(0xFF3A1F4F, 0xFF7C4DFF, dp(1))
+                : rounded(BTN, BTN_EDGE, dp(1));
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_focused}, focused);
+        states.addState(new int[]{android.R.attr.state_pressed}, focused);
+        states.addState(new int[]{}, normal);
+        btn.setBackground(states);
+        btn.setTextColor(new ColorStateList(
+                new int[][]{{android.R.attr.state_focused}, {}},
+                new int[]{Color.WHITE, primary ? 0xFFF1D9FF : TEXT}));
+        btn.setOnFocusChangeListener((v, has) -> {
+            v.animate().scaleX(has ? 1.07f : 1f).scaleY(has ? 1.07f : 1f).setDuration(120).start();
+            v.setElevation(has ? dp(10) : 0);
+        });
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         lp.setMarginEnd(dp(10));
         parent.addView(btn, lp);
         return btn;
