@@ -7,10 +7,14 @@ final class Settings {
     static final int[] SEGMENT_OPTIONS = {10, 15, 20, 30, 40};
     static final int[] APP_SEGMENT_OPTIONS = {8, 10, 12, 14, 15, 16};
     static final String[] STYLE_NAMES = {"Cozy", "Vivid", "Accurate"};
-    static final String[] MODE_NAMES = {"App segments", "Realtime zones", "Single color", "WLED"};
+    static final String[] MODE_NAMES = {"App segments", "Turbo realtime", "Single color", "WLED"};
     static final int MODE_SEGMENTS = 0, MODE_REALTIME = 1, MODE_SINGLE = 2, MODE_WLED = 3;
     static final int[] LED_OPTIONS = {30, 60, 90, 120, 150, 180, 240, 300};
     static final int[] FPS_OPTIONS = {10, 15, 20, 30, 60};
+    static final String[] SPEED_NAMES = {"Safe", "Fast", "Turbo", "Max"};
+    static final int[] SEG_CMDS = {60, 100, 150, 220};  // App segments: commands per second
+    static final int[] RT_FPS = {20, 30, 45, 60};       // Turbo realtime: packets per second
+    static final int[] WLED_FPS = {30, 40, 50, 60};     // WLED: frames per second
     static final int[] DETAIL_GROUP = {1, 2, 3};
     static final String[] DETAIL_NAMES = {"Max", "Balanced", "Smoothest"};
     static final int[] BRIGHTNESS_OPTIONS = {40, 60, 80, 100};
@@ -23,6 +27,7 @@ final class Settings {
     int shift = 0;
     int brightness = 100;
     int fps = 20;
+    int speed = 1; // index into SPEED_NAMES
     int capture = 0; // 0 small, 1 medium, 2 large (applies on next Start)
     int detail = 1; // index into DETAIL_GROUP; 2 segments per zone by default
     int smoothing = 1;
@@ -49,6 +54,7 @@ final class Settings {
         s.shift = p.getInt("shift", s.shift);
         s.brightness = p.getInt("brightness", s.brightness);
         s.fps = p.getInt("rate4", s.fps);
+        s.speed = p.getInt("speed", s.speed);
         s.smoothing = p.getInt("smoothing", s.smoothing);
         s.gradient = p.getBoolean("blend", s.gradient);
         s.mode = p.getInt("mode", s.mode);
@@ -73,6 +79,7 @@ final class Settings {
                 .putInt("shift", shift)
                 .putInt("brightness", brightness)
                 .putInt("rate4", fps)
+                .putInt("speed", speed)
                 .putInt("smoothing", smoothing)
                 .putBoolean("blend", gradient)
                 .putInt("mode", mode)
@@ -88,9 +95,13 @@ final class Settings {
 
     /** Number of color zones the current mode drives. */
     int zoneCount() {
-        if (mode == MODE_SEGMENTS) return appSegments;
+        if (mode == MODE_SEGMENTS || mode == MODE_REALTIME) return appSegments; // must match the Govee app
         if (mode == MODE_SINGLE) return 12;
         return segments;
+    }
+
+    int speedIdx() {
+        return Math.max(0, Math.min(SPEED_NAMES.length - 1, speed));
     }
 
     boolean customSides() {

@@ -101,13 +101,25 @@ public class MainActivity extends Activity {
         Button start = button(r, "Start sync", v -> requestCapture(), true);
         button(r, "Stop", v -> stopAll(), false);
         r = row(sync);
+        button(r, "Try Turbo", v -> {
+            settings.mode = Settings.MODE_REALTIME;
+            settings.gradient = false; // one color per segment
+            ipField.setText(addr());
+            changed();
+            if (CaptureService.running) {
+                local("Switched to Turbo while syncing. If the strip goes dark, press Mode until it says App segments.");
+                return;
+            }
+            testPattern(false, "Turbo test sent. Red at the bottom-left fading to blue around the TV? Turbo works: "
+                    + "press Start sync. Strip stayed dark? Press Stop, then Mode until it says App segments.");
+        }, false);
         button(r, "Live preset", v -> {
-            settings.smoothing = 3;  // Instant
-            settings.detail = 2;     // 4 zones: every zone updates every tick
-            settings.fps = 30;
+            settings.smoothing = 3;  // Instant: no smoothing delay
+            settings.detail = 0;     // full detail; the scheduler repaints big areas first
+            settings.speed = 1;      // Fast
             settings.capture = 2;    // Large
             changed();
-            local("Live preset on: Instant motion, 4 zones, 30/s. Restart sync to apply. If it starts lagging, set Rate to 20.");
+            local("Live preset on: Instant motion, full detail, Fast. Restart sync to apply.");
         }, false);
 
         // Connection
@@ -148,7 +160,7 @@ public class MainActivity extends Activity {
         reverseBtn = button(r, "", v -> { settings.reverse = !settings.reverse; changed(); }, false);
         shiftBtn = button(r, "", v -> { settings.shift = (settings.shift + 1) % Math.max(1, total(settings.sideCounts())); changed(); }, false);
         segBtn = button(r, "", v -> {
-            if (settings.mode == Settings.MODE_SEGMENTS) {
+            if (settings.mode == Settings.MODE_SEGMENTS || settings.mode == Settings.MODE_REALTIME) {
                 settings.appSegments = Settings.next(Settings.APP_SEGMENT_OPTIONS, settings.appSegments);
             } else {
                 settings.segments = Settings.next(Settings.SEGMENT_OPTIONS, settings.segments);
@@ -179,7 +191,7 @@ public class MainActivity extends Activity {
         brightBtn = button(r, "", v -> { settings.brightness = Settings.next(Settings.BRIGHTNESS_OPTIONS, settings.brightness); changed(); }, false);
         smoothBtn = button(r, "", v -> { settings.smoothing = (settings.smoothing + 1) % 4; changed(); }, false);
         r = row(look);
-        fpsBtn = button(r, "", v -> { settings.fps = Settings.next(Settings.FPS_OPTIONS, settings.fps); changed(); }, false);
+        fpsBtn = button(r, "", v -> { settings.speed = (settings.speedIdx() + 1) % Settings.SPEED_NAMES.length; changed(); }, false);
         detailBtn = button(r, "", v -> { settings.detail = (settings.detail + 1) % 3; changed(); }, false);
         captureBtn = button(r, "", v -> {
             settings.capture = (settings.capture + 1) % 3;
@@ -337,6 +349,10 @@ public class MainActivity extends Activity {
     }
 
     private void testPattern(boolean sides) {
+        testPattern(sides, null);
+    }
+
+    private void testPattern(boolean sides, String doneMsg) {
         if (settings.mode == Settings.MODE_WLED && !CaptureService.running) {
             int[] counts = settings.sideCounts();
             wledTest(sides ? EdgeSampler.sidePattern(counts) : EdgeSampler.testPattern(total(counts)),
@@ -363,9 +379,10 @@ public class MainActivity extends Activity {
                 int[] colors = EdgeSampler.order(logical, s.reverse, s.shift);
                 if (s.mode == Settings.MODE_REALTIME) {
                     c.razer(true);
-                    for (int i = 0; i < 3; i++) {
-                        c.colors(colors, false);
-                        Thread.sleep(150);
+                    Thread.sleep(120); // let the strip switch into realtime mode
+                    for (int i = 0; i < 6; i++) {
+                        c.colors(colors, s.gradient);
+                        Thread.sleep(100);
                     }
                 } else {
                     c.razer(false);
@@ -374,7 +391,7 @@ public class MainActivity extends Activity {
                 }
                 ui.post(() -> {
                     ipField.setText(ip);
-                    local(sides
+                    local(doneMsg != null ? doneMsg : sides
                             ? "Sides test sent. Each color should cover exactly one side of the TV. Adjust the per-side counts until it does."
                             : "Sent zone test to " + ip + ". Red should start at the bottom of the left side.");
                 });
@@ -406,10 +423,11 @@ public class MainActivity extends Activity {
         sidesBtn.setText(settings.fourSides ? "Loop\n4 sides" : "Loop\n3 sides");
         reverseBtn.setText("Reverse\n" + (settings.reverse ? "On" : "Off"));
         shiftBtn.setText("Shift\n" + settings.shift);
-        segBtn.setText((settings.mode == Settings.MODE_SEGMENTS ? "Segments\n" : "Zones\n") + settings.zoneCount());
+        boolean govee = settings.mode == Settings.MODE_SEGMENTS || settings.mode == Settings.MODE_REALTIME;
+        segBtn.setText((govee ? "Segments\n" : "Zones\n") + settings.zoneCount());
         brightBtn.setText("Brightness\n" + settings.brightness + "%");
         smoothBtn.setText("Motion\n" + Settings.SMOOTH_NAMES[settings.smoothing]);
-        fpsBtn.setText("Rate\n" + settings.fps + "/s");
+        fpsBtn.setText("Speed\n" + Settings.SPEED_NAMES[settings.speedIdx()]);
         gradBtn.setText("Blend\n" + (settings.gradient ? "On" : "Off"));
     }
 

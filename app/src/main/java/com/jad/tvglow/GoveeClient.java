@@ -53,8 +53,15 @@ final class GoveeClient implements Closeable {
         send(GoveeProtocol.razerJson(GoveeProtocol.razerEnable(on)));
     }
 
-    void colors(int[] rgb, boolean gradient) throws IOException {
-        send(GoveeProtocol.razerJson(GoveeProtocol.ledData(rgb, gradient)));
+    void colors(int[] rgb, boolean stretch) throws IOException {
+        send(GoveeProtocol.razerJson(GoveeProtocol.ledData(rgb, stretch)));
+    }
+
+    /** Planned segment commands, all in one ptReal packet. */
+    void segmentCmds(java.util.List<SegmentScheduler.Cmd> cmds) throws IOException {
+        java.util.List<byte[]> frames = new java.util.ArrayList<>();
+        for (SegmentScheduler.Cmd c : cmds) frames.add(GoveeProtocol.segmentColorFrame(c.color, c.mask));
+        send(GoveeProtocol.ptRealJson(frames));
     }
 
     @Override

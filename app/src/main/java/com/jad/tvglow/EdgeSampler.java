@@ -19,9 +19,20 @@ public final class EdgeSampler {
         return Math.max((c >> 16) & 0xFF, Math.max((c >> 8) & 0xFF, c & 0xFF));
     }
 
+    /**
+     * A row counts as letterbox bar when its outer 15% on both sides is black and at most
+     * a quarter of the middle is lit. Centered subtitles in the bar don't break detection.
+     */
     private static boolean darkRow(int[] px, int w, int y, int x0, int x1) {
-        for (int x = x0; x < x1; x += 2) if (maxCh(px[y * w + x]) > DARK) return false;
-        return true;
+        int band = Math.max(1, w * 15 / 100);
+        for (int x = 0; x < band; x++) if (maxCh(px[y * w + x]) > DARK) return false;
+        for (int x = w - band; x < w; x++) if (maxCh(px[y * w + x]) > DARK) return false;
+        int bright = 0, total = 0;
+        for (int x = band; x < w - band; x += 2) {
+            total++;
+            if (maxCh(px[y * w + x]) > DARK) bright++;
+        }
+        return bright * 4 <= total; // at most 25% of the middle may be lit (subtitles)
     }
 
     private static boolean darkCol(int[] px, int w, int x, int y0, int y1) {
@@ -174,7 +185,11 @@ public final class EdgeSampler {
      * top (left to right), right (top to bottom), bottom (right to left).
      */
     public static int[] sampleSides(int[] px, int w, int h, int[] counts, float depthFrac) {
-        int[] r = contentRect(px, w, h);
+        return sampleSides(px, w, h, counts, depthFrac, contentRect(px, w, h));
+    }
+
+    /** Same, sampling inside a given content rectangle {x0, y0, x1, y1}. */
+    public static int[] sampleSides(int[] px, int w, int h, int[] counts, float depthFrac, int[] r) {
         int x0 = r[0], y0 = r[1], x1 = r[2], y1 = r[3];
         int cw = x1 - x0, ch = y1 - y0;
         int dx = Math.max(1, Math.round(cw * depthFrac));

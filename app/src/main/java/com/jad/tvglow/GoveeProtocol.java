@@ -8,9 +8,10 @@ import java.util.Base64;
  *
  * Razer binary frame: {0xBB, sizeHi, sizeLo, cmd, data..., xorChecksum}
  *   0xB1 enable:   data = {on ? 1 : 0}
- *   0xB0 LED data: data = {flag, count, r,g,b, r,g,b, ...}
- *     flag 1 = discrete zones (what devices expect by default), 0 = blend.
- *     Some docs describe this flag inverted; sending 0 makes devices ignore frames.
+ *   0xB0 LED data: data = {stretch, count, r,g,b, r,g,b, ...}
+ *     stretch 0 = one color per segment, 1 = stretch the colors across all LEDs.
+ *     count must equal the segment count shown in the Govee app, or the device
+ *     silently drops the packet (H6167: 12, confirmed working in LedFx).
  * The device drops out of razer mode if no LED data arrives for ~60s.
  */
 public final class GoveeProtocol {
@@ -103,10 +104,10 @@ public final class GoveeProtocol {
     }
 
     /** rgb entries are packed 0xRRGGBB. Max 255 colors. */
-    public static byte[] ledData(int[] rgb, boolean gradient) {
+    public static byte[] ledData(int[] rgb, boolean stretch) {
         int n = Math.min(rgb.length, 255);
         byte[] data = new byte[2 + n * 3];
-        data[0] = (byte) (gradient ? 0 : 1);
+        data[0] = (byte) (stretch ? 1 : 0);
         data[1] = (byte) n;
         for (int i = 0; i < n; i++) {
             int c = rgb[i];

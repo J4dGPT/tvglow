@@ -76,3 +76,15 @@ For updates as fast as the TV delivers frames, use an ESP32 running [WLED](https
 3. Calibrate with **Test sides** exactly like the Govee strip, then **Rate: 60/s** and **Start sync**.
 
 TV Glow streams WLED's realtime UDP protocol (DRGB/DNRGB, port 21324). WLED goes back to its normal effect 2 seconds after sync stops.
+
+## Turbo realtime (fastest)
+
+**Try Turbo** switches to Govee's realtime protocol (the one Govee Desktop and Razer Chroma use): every frame, all segments go out in a single packet. The segment count must match the Govee app exactly (H6167: 12), otherwise the strip silently drops the packets. If the strip stays dark after **Try Turbo**, press **Stop**, then **Mode** until it says App segments.
+
+## Latency engineering
+
+- Frames are processed and sent the moment they arrive, from a display-priority thread.
+- Wi-Fi power save is disabled while syncing (low-latency Wi-Fi lock).
+- App segments mode uses an error-driven scheduler: each Govee command can paint any set of segments, so scene changes repaint the whole strip in one command and detail fills in next, within a token-bucket budget the strip can absorb without queueing.
+- Letterbox detection ignores subtitles and only moves after the bars are stable, so dark scenes don't make zones jump.
+- **Speed** sets how hard the strip is driven (Safe, Fast, Turbo, Max). If the lights start trailing the picture, step down one level.
