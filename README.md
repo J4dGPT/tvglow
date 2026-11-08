@@ -100,3 +100,16 @@ TV Glow streams WLED's realtime UDP protocol (DRGB/DNRGB, port 21324). WLED goes
 - **Auto-resume:** if sync was on when the app stopped (update, reboot), opening TV Glow asks to resume right away.
 - **Strip health:** while syncing, the app asks the strip for its status every 3 seconds and listens for the answer. If the strip goes quiet, it scans the network and reconnects if the strip moved to a new address. The status line shows "strip answering" or "strip not answering".
 - **On-screen notices** appear over whatever you're watching: when sync starts, when the strip stops answering, and when the picture can't be captured (protected apps, HDMI inputs).
+
+## Setting it up for someone else
+
+**Install page:** `docs/index.html` is served by GitHub Pages at **j4dgpt.github.io/tvglow** (enable once: repo Settings → Pages → Deploy from a branch → `main` / `docs`). Typing that address into the Downloader app opens the page and starts the download automatically.
+
+**Setup wizard:** a fresh install opens guided setup, all with the remote:
+1. Finds Govee lights on the network (or enter a WLED address).
+2. Segment count (known models skip this; otherwise count them in the Govee app).
+3. Picks the fastest mode that works by asking "do you see red fading to blue?" (Turbo realtime, then App segments, then single color).
+4. Placement from two questions: where the strip starts and which way it runs. `Placement.solve` turns that into Reverse and Shift, then a side-color check with Rotate/Flip confirms it.
+5. Pick a look (Accurate, Cozy, Vivid) and start syncing.
+
+**Run setup** on the main screen repeats it any time.

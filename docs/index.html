@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV Glow</title>
+<meta http-equiv="refresh" content="4; url=https://github.com/J4dGPT/tvglow/releases/download/latest/tv.apk">
+<style>
+  :root { --bg: #0b0b12; --card: #15151f; --text: #ececf4; --muted: #8c8ca3; --a: #ff4fd8; --b: #7c4dff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 48px 16px 64px; }
+  h1 { font-size: clamp(36px, 6vw, 64px); margin: 0 0 8px; letter-spacing: -0.02em; }
+  .glow { background: linear-gradient(90deg, var(--a), var(--b)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  p.lead { font-size: clamp(18px, 2.4vw, 24px); color: var(--muted); margin: 0 0 32px; }
+  a.download { display: inline-block; padding: 20px 36px; border-radius: 16px; font-size: 24px; font-weight: 600; color: #fff;
+    text-decoration: none; background: linear-gradient(90deg, var(--a), var(--b)); outline: 3px solid transparent; }
+  a.download:focus, a.download:hover { outline-color: #fff; transform: scale(1.04); }
+  .note { color: var(--muted); font-size: 16px; margin-top: 14px; }
+  ol { background: var(--card); border-radius: 20px; padding: 24px 24px 24px 48px; font-size: 19px; line-height: 1.6; margin-top: 36px; }
+  li + li { margin-top: 8px; }
+  .fine { color: var(--muted); font-size: 15px; margin-top: 28px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<main>
+  <h1><span class="glow">TV Glow</span></h1>
+  <p class="lead">Syncs your TV lights to whatever is on screen. For Android TV and Google TV.</p>
+  <a class="download" href="https://github.com/J4dGPT/tvglow/releases/download/latest/tv.apk">Download TV Glow</a>
+  <p class="note">The download starts by itself in a few seconds.</p>
+  <ol>
+    <li>On your phone: Govee Home app → your light → gear icon → turn on <b>LAN Control</b>.</li>
+    <li>When the download finishes, choose <b>Install</b>. If the TV asks, allow Downloader to install apps.</li>
+    <li>Open <b>TV Glow</b>. Setup walks you through the rest with the remote.</li>
+  </ol>
+  <p class="fine">Works with Govee Wi-Fi lights that have LAN Control, and with WLED. Apps running on the TV sync (YouTube, Plex, games);
+    protected apps like Netflix and HDMI inputs like consoles can't be captured.</p>
+</main>
+</body>
+</html>

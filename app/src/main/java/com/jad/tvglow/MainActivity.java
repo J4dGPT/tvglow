@@ -102,6 +102,13 @@ public class MainActivity extends Activity {
         Button start = button(r, "Start sync", v -> requestCapture(), true);
         button(r, "Stop", v -> stopAll(), false);
         r = row(sync);
+        button(r, "Run setup", v -> {
+            if (CaptureService.running) {
+                local("Stop sync first, then run setup.");
+                return;
+            }
+            startActivity(new Intent(this, SetupActivity.class));
+        }, false);
         button(r, "Try Turbo", v -> {
             settings.mode = Settings.MODE_REALTIME;
             settings.gradient = false; // one color per segment
@@ -221,6 +228,10 @@ public class MainActivity extends Activity {
         setContentView(scroll);
         refreshLabels();
         start.requestFocus();
+        if (!settings.setupDone && settings.ip.isEmpty() && settings.wledIp.isEmpty()) {
+            // brand-new install (a friend's TV): go straight into guided setup
+            startActivity(new Intent(this, SetupActivity.class));
+        }
     }
 
     @Override
@@ -232,6 +243,11 @@ public class MainActivity extends Activity {
         if (done != null) {
             CalibrateActivity.result = null;
             local(done);
+        } else if (SetupActivity.startRequested) {
+            SetupActivity.startRequested = false;
+            ipField.setText(addr());
+            local("Setup saved. Starting sync...");
+            requestCapture();
         } else if (!autoResumeTried && settings.wasSyncing && !CaptureService.running) {
             // Sync was on before an update, reboot or crash: ask to resume right away.
             autoResumeTried = true;

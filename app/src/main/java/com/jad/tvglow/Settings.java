@@ -41,6 +41,7 @@ final class Settings {
     String wledIp = "";
     String sku = "";            // strip model, learned on discovery
     boolean wasSyncing = false; // resume prompt after an update or reboot
+    boolean setupDone = false;  // first-run setup wizard completed
     int ledCount = 120;
     // Match colors calibration (color cube, see LedCorrection); each -10..10
     int calWarm = 0, calTint = 0, calCyan = 0, calMag = 0, calYel = 0;
@@ -71,6 +72,7 @@ final class Settings {
         s.wledIp = p.getString("wledIp", s.wledIp);
         s.sku = p.getString("sku", "");
         s.wasSyncing = p.getBoolean("wasSyncing", false);
+        s.setupDone = p.getBoolean("setupDone", false);
         s.ledCount = p.getInt("ledCount", s.ledCount);
         // "cube" keys: values from the earlier per-channel calibration are intentionally dropped
         s.calWarm = p.getInt("cubeWarm", 0);
@@ -103,6 +105,7 @@ final class Settings {
                 .putString("wledIp", wledIp)
                 .putString("sku", sku)
                 .putBoolean("wasSyncing", wasSyncing)
+                .putBoolean("setupDone", setupDone)
                 .putInt("ledCount", ledCount)
                 .putInt("cubeWarm", calWarm)
                 .putInt("cubeTint", calTint)

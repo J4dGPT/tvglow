@@ -29,6 +29,11 @@
         </activity>
 
         <activity
+            android:name=".SetupActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
+        <activity
             android:name=".CalibrateActivity"
             android:exported="false"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
