@@ -185,21 +185,25 @@ public final class EdgeSampler {
             if (s > 0.08f) s = Math.min(1f, s * 1.5f + 0.05f);
             v = (float) Math.pow(v, 1.15);
         } else {
-            if (s < 0.22f) {           // white / grey: turn into warm amber
-                h = 28f;
-                s = 0.75f;
-                v *= 0.55f;
-            } else {
-                s = Math.min(1f, s * 1.7f + 0.15f);
-            }
-            v = (float) Math.pow(v, 1.7) * 0.8f; // darker, moodier curve
-            if (v < 0.05f) {           // ember floor so dark scenes stay cozy
-                h = 22f;
-                s = 0.9f;
-                v = 0.05f;
-            }
+            // All transitions are soft blends: no thresholds, so nothing flickers.
+            float vc = (float) Math.pow(v, 1.7) * 0.8f * bright;          // darker curve
+            int colorful = fromHsv(h, Math.min(1f, s * 1.7f + 0.15f), Math.min(1f, vc));
+            int amber = fromHsv(28f, 0.75f, Math.min(1f, vc * 0.55f));  // whites go warm
+            float amberMix = Math.max(0f, Math.min(1f, (0.3f - s) / 0.25f));
+            int out = lerp(colorful, amber, amberMix);
+            float lum = Math.max(vc * (1 - amberMix * 0.45f), 0f);
+            int ember = fromHsv(22f, 0.9f, 0.05f * bright);              // dark-scene glow
+            float emberMix = Math.max(0f, Math.min(1f, (0.07f - lum) / 0.07f));
+            return lerp(out, ember, emberMix);
         }
         return fromHsv(h, s, Math.min(1f, v * bright));
+    }
+
+    static int lerp(int a, int b, float t) {
+        float r = ((a >> 16) & 0xFF) + (((b >> 16) & 0xFF) - ((a >> 16) & 0xFF)) * t;
+        float g = ((a >> 8) & 0xFF) + (((b >> 8) & 0xFF) - ((a >> 8) & 0xFF)) * t;
+        float bl = (a & 0xFF) + ((b & 0xFF) - (a & 0xFF)) * t;
+        return clamp(r) << 16 | clamp(g) << 8 | clamp(bl);
     }
 
     static float[] toHsv(int c) {

@@ -203,6 +203,8 @@ public class CaptureService extends Service {
         // 1. Sample: vivid, linear-light weighted zones, then a light blend with neighbors.
         int[] target = EdgeSampler.sample(pixels, W, H, n, s.fourSides, 0.14f);
         target = EdgeSampler.blendNeighbors(target, s.fourSides, 0.18f);
+        float bright = s.brightness / 100f;
+        for (int i = 0; i < n; i++) target[i] = EdgeSampler.style(target[i], s.style, bright);
 
         // 2. Adaptive temporal smoothing: small drifts glide, big changes snap.
         float dt = lastProcess == 0 ? 33f : Math.min(200f, now - lastProcess);
@@ -218,7 +220,6 @@ public class CaptureService extends Service {
         float base = Settings.SMOOTH_ALPHA[Math.max(0, Math.min(2, s.smoothing))];
         boolean sceneCut = EdgeSampler.colorDistance(EdgeSampler.average(target), lastAvg) > 110;
         lastAvg = EdgeSampler.average(target);
-        float bright = s.brightness / 100f;
         int[] out = new int[n];
         for (int i = 0; i < n; i++) {
             int t = target[i];
@@ -233,13 +234,13 @@ public class CaptureService extends Service {
             int c = Math.round(smoothed[i * 3]) << 16
                     | Math.round(smoothed[i * 3 + 1]) << 8
                     | Math.round(smoothed[i * 3 + 2]);
-            out[i] = EdgeSampler.style(c, s.style, bright);
+            out[i] = c;
         }
         int[] ordered = EdgeSampler.order(out, s.reverse, s.shift);
 
         // 3. Send at the chosen rate (single color is capped at 10/s; it fades in firmware).
         final int mode = s.mode;
-        int sendMs = mode == Settings.MODE_SINGLE ? 100 : 1000 / Math.min(s.fps, mode == Settings.MODE_SEGMENTS ? 15 : 30);
+        int sendMs = mode == Settings.MODE_SINGLE ? 100 : 1000 / Math.min(s.fps, mode == Settings.MODE_SEGMENTS ? 20 : 30);
         if (now - lastSend < sendMs) return;
 
         int[] seg = null;
@@ -253,7 +254,7 @@ public class CaptureService extends Service {
             seg = new int[n];
             boolean any = false;
             for (int i = 0; i < n; i++) {
-                int q = EdgeSampler.quantize(ordered[i]);
+                int q = ordered[i];
                 if (q == lastSentSeg[i]) {
                     seg[i] = -1;
                 } else {
