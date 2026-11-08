@@ -33,7 +33,7 @@ public class MainActivity extends Activity {
     private String localStatus = null;
 
     private final Button[] sideBtns = new Button[4];
-    private Button captureBtn, detailBtn, styleBtn, modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
+    private Button ledBtn, captureBtn, detailBtn, styleBtn, modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
     private EditText ipField;
 
     // Palette: deep night background, pink-to-purple glow accent (matches the wall).
@@ -119,15 +119,16 @@ public class MainActivity extends Activity {
         ipField.setHint("Strip address, blank = auto-find");
         ipField.setHintTextColor(MUTED);
         ipField.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        ipField.setText(settings.ip);
+        ipField.setText(addr());
         ipField.setBackground(fieldBg());
         ipField.setPadding(dp(16), dp(12), dp(16), dp(12));
         conn.addView(ipField, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         r = row(conn);
         button(r, "Save", v -> {
-            settings.ip = ipField.getText().toString().trim();
+            String a = ipField.getText().toString().trim();
+            if (settings.mode == Settings.MODE_WLED) settings.wledIp = a; else settings.ip = a;
             changed();
-            local(settings.ip.isEmpty() ? "Address cleared, will auto-find" : "Saved " + settings.ip);
+            local(a.isEmpty() ? "Address cleared" : "Saved " + a);
         }, false);
         button(r, "Find strip", v -> findStrip(), false);
         button(r, "Test LAN", v -> testLan(), false);
@@ -141,7 +142,7 @@ public class MainActivity extends Activity {
         r = row(cal);
         button(r, "Test zones", v -> testPattern(false), false);
         button(r, "Test sides", v -> testPattern(true), false);
-        modeBtn = button(r, "", v -> { settings.mode = (settings.mode + 1) % 3; settings.shift = 0; changed(); }, false);
+        modeBtn = button(r, "", v -> { settings.mode = (settings.mode + 1) % 4; settings.shift = 0; ipField.setText(addr()); changed(); }, false);
         r = row(cal);
         sidesBtn = button(r, "", v -> { settings.fourSides = !settings.fourSides; changed(); }, false);
         reverseBtn = button(r, "", v -> { settings.reverse = !settings.reverse; changed(); }, false);
@@ -155,6 +156,7 @@ public class MainActivity extends Activity {
             settings.shift = 0;
             changed();
         }, false);
+        ledBtn = button(r, "", v -> { settings.ledCount = Settings.next(Settings.LED_OPTIONS, settings.ledCount); changed(); }, false);
         text(cal, "Segments per side (* = auto)  ·  test: left red, top green, right blue, bottom white", 13, MUTED, false)
                 .setPadding(dp(2), dp(14), 0, dp(2));
         r = row(cal);
@@ -265,7 +267,40 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    private String addr() {
+        return settings.mode == Settings.MODE_WLED ? settings.wledIp : settings.ip;
+    }
+
+    /** WLED tests: send logical zone colors spread across the LEDs a few times. */
+    private void wledTest(int[] logical, String done) {
+        final Settings s = settings;
+        final String ip = s.wledIp;
+        if (ip == null || ip.isEmpty()) {
+            local("Enter the WLED controller's address under Connection first.");
+            return;
+        }
+        new Thread(() -> {
+            try (WledClient w = new WledClient(ip)) {
+                int[] zones = EdgeSampler.order(logical, s.reverse, s.shift);
+                int[] leds = WledProtocol.upsample(zones, s.ledCount, s.sideCounts()[3] > 0);
+                for (int i = 0; i < 3; i++) {
+                    w.send(leds);
+                    Thread.sleep(100);
+                }
+                ui.post(() -> local(done));
+            } catch (Exception e) {
+                ui.post(() -> local("WLED test failed: " + e.getMessage()));
+            }
+        }).start();
+    }
+
     private void testLan() {
+        if (settings.mode == Settings.MODE_WLED && !CaptureService.running) {
+            int[] red = new int[Math.max(1, settings.zoneCount())];
+            java.util.Arrays.fill(red, 0xFF0000);
+            wledTest(red, "Sent red to WLED. Whole strip red for 2 seconds = connection works.");
+            return;
+        }
         if (CaptureService.running) {
             local("Stop sync first, then run the test");
             return;
@@ -302,6 +337,13 @@ public class MainActivity extends Activity {
     }
 
     private void testPattern(boolean sides) {
+        if (settings.mode == Settings.MODE_WLED && !CaptureService.running) {
+            int[] counts = settings.sideCounts();
+            wledTest(sides ? EdgeSampler.sidePattern(counts) : EdgeSampler.testPattern(total(counts)),
+                    sides ? "Sides test sent (shows ~2 s): left red, top green, right blue, bottom white."
+                          : "Zone test sent (shows ~2 s): red should start at the bottom of the left side.");
+            return;
+        }
         if (CaptureService.running) {
             local("Stop sync first, then run the test");
             return;
@@ -355,6 +397,8 @@ public class MainActivity extends Activity {
         if (settings.customSides() && total(sc) != settings.zoneCount()) {
             local("Per-side counts add up to " + total(sc) + " but Segments is " + settings.zoneCount() + ". Make them match.");
         }
+        ledBtn.setText("WLED LEDs\n" + settings.ledCount);
+        ledBtn.setVisibility(settings.mode == Settings.MODE_WLED ? View.VISIBLE : View.GONE);
         captureBtn.setText("Capture\n" + new String[]{"Small", "Medium", "Large"}[settings.capture]);
         detailBtn.setText("Detail\n" + Settings.DETAIL_NAMES[settings.detail]);
         styleBtn.setText("Style\n" + Settings.STYLE_NAMES[settings.style]);

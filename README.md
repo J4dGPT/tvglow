@@ -66,3 +66,13 @@ Settings apply live while syncing. **Stop** hands the strip back to whatever mod
 - `EdgeSampler.java`: letterbox detection, edge zone sampling, ordering, color adjust.
 - `CaptureService.java`: MediaProjection capture, smoothing, frame pacing, keep-alive.
 - `MainActivity.java`: D-pad friendly settings screen.
+
+## WLED (frame-rate sync)
+
+For updates as fast as the TV delivers frames, use an ESP32 running [WLED](https://kno.wled.ge) with an addressable strip (WS2812B / SK6812).
+
+1. Flash WLED, join it to your Wi-Fi, set the LED count in WLED.
+2. In TV Glow: **Mode: WLED**, enter the controller's IP under Connection and Save, set **WLED LEDs** to your count.
+3. Calibrate with **Test sides** exactly like the Govee strip, then **Rate: 60/s** and **Start sync**.
+
+TV Glow streams WLED's realtime UDP protocol (DRGB/DNRGB, port 21324). WLED goes back to its normal effect 2 seconds after sync stops.

@@ -7,9 +7,10 @@ final class Settings {
     static final int[] SEGMENT_OPTIONS = {10, 15, 20, 30, 40};
     static final int[] APP_SEGMENT_OPTIONS = {8, 10, 12, 14, 15, 16};
     static final String[] STYLE_NAMES = {"Cozy", "Vivid", "Accurate"};
-    static final String[] MODE_NAMES = {"App segments", "Realtime zones", "Single color"};
-    static final int MODE_SEGMENTS = 0, MODE_REALTIME = 1, MODE_SINGLE = 2;
-    static final int[] FPS_OPTIONS = {10, 15, 20, 30};
+    static final String[] MODE_NAMES = {"App segments", "Realtime zones", "Single color", "WLED"};
+    static final int MODE_SEGMENTS = 0, MODE_REALTIME = 1, MODE_SINGLE = 2, MODE_WLED = 3;
+    static final int[] LED_OPTIONS = {30, 60, 90, 120, 150, 180, 240, 300};
+    static final int[] FPS_OPTIONS = {10, 15, 20, 30, 60};
     static final int[] DETAIL_GROUP = {1, 2, 3};
     static final String[] DETAIL_NAMES = {"Max", "Balanced", "Smoothest"};
     static final int[] BRIGHTNESS_OPTIONS = {40, 60, 80, 100};
@@ -32,6 +33,8 @@ final class Settings {
     int[] sides = {0, 0, 0, 0}; // custom left/top/right/bottom counts; all 0 = auto
     float saturation = 1.35f;
     String ip = "";
+    String wledIp = "";
+    int ledCount = 120;
 
     private static SharedPreferences prefs(Context c) {
         return c.getSharedPreferences("tvglow", Context.MODE_PRIVATE);
@@ -55,6 +58,8 @@ final class Settings {
         s.appSegments = p.getInt("appSegments", s.appSegments);
         for (int i = 0; i < 4; i++) s.sides[i] = p.getInt("side" + i, 0);
         s.ip = p.getString("ip", s.ip);
+        s.wledIp = p.getString("wledIp", s.wledIp);
+        s.ledCount = p.getInt("ledCount", s.ledCount);
         return s;
     }
 
@@ -76,6 +81,8 @@ final class Settings {
                 .putInt("style", style)
                 .putInt("appSegments", appSegments)
                 .putString("ip", ip)
+                .putString("wledIp", wledIp)
+                .putInt("ledCount", ledCount)
                 .apply();
     }
 

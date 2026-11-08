@@ -46,6 +46,11 @@ public class CaptureService extends Service {
     private final ExecutorService net = Executors.newSingleThreadExecutor();
     private final AtomicBoolean sending = new AtomicBoolean(false);
     private volatile GoveeClient client;
+    private volatile WledClient wled;
+
+    private boolean connected() {
+        return client != null || wled != null;
+    }
 
     private Settings settings;
     private int[] pixels;
@@ -150,6 +155,24 @@ public class CaptureService extends Service {
     }
 
     private void connectStrip() {
+        if (settings.mode == Settings.MODE_WLED) {
+            net.execute(() -> {
+                String ip = settings.wledIp;
+                if (ip == null || ip.isEmpty()) {
+                    status = "WLED mode needs the WLED controller's address. Enter it under Connection.";
+                    stopSelf();
+                    return;
+                }
+                try {
+                    wled = new WledClient(ip);
+                    status = "Syncing to WLED at " + ip;
+                } catch (Exception e) {
+                    status = "Could not reach WLED at " + ip + ": " + e.getMessage();
+                    stopSelf();
+                }
+            });
+            return;
+        }
         net.execute(() -> {
             String ip = GoveeClient.resolveIp(this, settings);
             if (ip == null) {
@@ -182,7 +205,7 @@ public class CaptureService extends Service {
                 settings = fresh;
                 lastSettingsLoad = now;
             }
-            if (now - lastFrame < 30) return; // capture ~30/s; send rate is separate
+            if (now - lastFrame < 8) return; // take every frame the TV offers (up to ~120/s)
             lastFrame = now;
             frameCount++;
             if (statsSince == 0) statsSince = now;
@@ -194,7 +217,7 @@ public class CaptureService extends Service {
                 int cnt = Math.min(fpsIdx, fpsHistory.length);
                 for (int i = 0; i < cnt; i++) { avg += fpsHistory[i]; min = Math.min(min, fpsHistory[i]); }
                 avg /= Math.max(1, cnt);
-                if (darkSince == 0 && client != null) {
+                if (darkSince == 0 && connected()) {
                     status = String.format(java.util.Locale.US,
                             "Syncing | screen: %.0f fps now, last 30s avg %.1f (lowest %.0f) | strip %.0f updates/s",
                             frameCount / secs, avg, min, sendCount / secs);
@@ -203,7 +226,7 @@ public class CaptureService extends Service {
                 sendCount = 0;
                 statsSince = now;
             }
-            if (client == null) return;
+            if (!connected()) return;
 
             copyPixels(img);
             latestTarget = computeTarget(now);
@@ -261,7 +284,7 @@ public class CaptureService extends Service {
      */
     private void tick(long now) {
         int[] target = latestTarget;
-        if (target == null || client == null) return;
+        if (target == null || !connected()) return;
         Settings s = settings;
         int n = target.length;
 
@@ -299,7 +322,7 @@ public class CaptureService extends Service {
 
         // 3. Send at the chosen rate (single color is capped at 10/s; it fades in firmware).
         final int mode = s.mode;
-        int sendMs = mode == Settings.MODE_SINGLE ? 100 : 1000 / Math.min(s.fps, mode == Settings.MODE_SEGMENTS ? 20 : 30);
+        int sendMs = mode == Settings.MODE_SINGLE ? 100 : 1000 / Math.min(s.fps, mode == Settings.MODE_SEGMENTS ? 20 : mode == Settings.MODE_WLED ? 60 : 30);
         if (now - lastSend < sendMs * 0.7f) return; // tolerate timer jitter
 
         int[] seg = null;
@@ -357,11 +380,19 @@ public class CaptureService extends Service {
         if (keepAlive) lastKeepAlive = now;
 
         final int[] segColors = seg;
+        final int[] ledColors = mode == Settings.MODE_WLED
+                ? WledProtocol.upsample(ordered, Math.max(1, s.ledCount), s.sideCounts()[3] > 0)
+                : null;
         final int avg = EdgeSampler.average(out);
         final boolean gradient = s.gradient;
         try {
             net.execute(() -> {
                 try {
+                    if (mode == Settings.MODE_WLED) {
+                        WledClient w = wled;
+                        if (w != null) w.send(ledColors);
+                        return;
+                    }
                     GoveeClient c = client;
                     if (c == null) return;
                     if (mode == Settings.MODE_SEGMENTS) {
@@ -396,8 +427,17 @@ public class CaptureService extends Service {
         if (handler != null) handler.removeCallbacks(ticker);
         if (captureThread != null) captureThread.quitSafely();
         final GoveeClient c = client;
+        final WledClient w = wled;
         client = null;
+        wled = null;
         net.execute(() -> {
+            if (w != null) {
+                try {
+                    w.release();
+                } catch (Exception ignored) {
+                }
+                w.close();
+            }
             if (c != null) {
                 try {
                     c.razer(false);
