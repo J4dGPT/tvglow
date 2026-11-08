@@ -28,7 +28,7 @@ public class MainActivity extends Activity {
     private TextView statusView;
     private String localStatus = null;
 
-    private Button modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
+    private Button styleBtn, modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
     private EditText ipField;
 
     private final Runnable poll = new Runnable() {
@@ -90,6 +90,7 @@ public class MainActivity extends Activity {
 
         section(root, "Look");
         LinearLayout row3 = row(root);
+        styleBtn = button(row3, "", v -> { settings.style = (settings.style + 1) % 3; changed(); });
         brightBtn = button(row3, "", v -> { settings.brightness = Settings.next(Settings.BRIGHTNESS_OPTIONS, settings.brightness); changed(); });
         smoothBtn = button(row3, "", v -> { settings.smoothing = (settings.smoothing + 1) % 3; changed(); });
         fpsBtn = button(row3, "", v -> { settings.fps = Settings.next(Settings.FPS_OPTIONS, settings.fps); changed(); });
@@ -275,6 +276,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshLabels() {
+        styleBtn.setText("Style: " + Settings.STYLE_NAMES[settings.style]);
         modeBtn.setText("Mode: " + Settings.MODE_NAMES[settings.mode]);
         sidesBtn.setText(settings.fourSides ? "Sides: 4 (full loop)" : "Sides: 3 (left, top, right)");
         reverseBtn.setText("Reverse: " + (settings.reverse ? "on" : "off"));

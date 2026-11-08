@@ -56,8 +56,8 @@ public final class EdgeSampler {
     }
 
     /**
-     * Zone color: averaged in linear light, weighted toward bright and saturated pixels
-     * so a zone reads as its dominant vivid color instead of a muddy mean.
+     * Zone color: weighted toward saturated pixels so a zone reads as its dominant
+     * color instead of a washed-out mean pulled up by white text and highlights.
      */
     private static int avg(int[] px, int w, int bx0, int by0, int bx1, int by1,
                            int[] r) {
@@ -75,15 +75,16 @@ public final class EdgeSampler {
                 int ri = (c >> 16) & 0xFF, gi = (c >> 8) & 0xFF, bi = c & 0xFF;
                 int mx = Math.max(ri, Math.max(gi, bi)), mn = Math.min(ri, Math.min(gi, bi));
                 float sat = mx == 0 ? 0 : (mx - mn) / (float) mx;
-                float wt = 0.15f + (mx / 255f) * (1f + 3f * sat);
-                sr += LIN[ri] * wt;
-                sg += LIN[gi] * wt;
-                sb += LIN[bi] * wt;
+                // Saturated pixels dominate; white/grey UI and highlights count little.
+                float wt = 0.1f + (mx / 255f) * (0.3f + 4f * sat * sat);
+                sr += ri * wt;
+                sg += gi * wt;
+                sb += bi * wt;
                 sw += wt;
             }
         }
         if (sw == 0) return 0;
-        return toSrgb(sr / sw) << 16 | toSrgb(sg / sw) << 8 | toSrgb(sb / sw);
+        return clamp(sr / sw) << 16 | clamp(sg / sw) << 8 | clamp(sb / sw);
     }
 
     /** Light blend with neighboring zones so the strip reads as one continuous glow. */
@@ -168,6 +169,61 @@ public final class EdgeSampler {
 
     private static int clamp(float v) {
         return v < 0 ? 0 : v > 255 ? 255 : Math.round(v);
+    }
+
+    public static final int STYLE_COZY = 0, STYLE_VIVID = 1, STYLE_ACCURATE = 2;
+
+    /**
+     * Final look. Cozy: deep saturated color, darker tone curve, whites become warm
+     * amber, and dark scenes keep a faint ember glow instead of going black.
+     */
+    public static int style(int c, int style, float bright) {
+        if (style == STYLE_ACCURATE) return adjust(c, 1.1f, bright);
+        float[] hsv = toHsv(c);
+        float h = hsv[0], s = hsv[1], v = hsv[2];
+        if (style == STYLE_VIVID) {
+            if (s > 0.08f) s = Math.min(1f, s * 1.5f + 0.05f);
+            v = (float) Math.pow(v, 1.15);
+        } else {
+            if (s < 0.22f) {           // white / grey: turn into warm amber
+                h = 28f;
+                s = 0.75f;
+                v *= 0.55f;
+            } else {
+                s = Math.min(1f, s * 1.7f + 0.15f);
+            }
+            v = (float) Math.pow(v, 1.7) * 0.8f; // darker, moodier curve
+            if (v < 0.05f) {           // ember floor so dark scenes stay cozy
+                h = 22f;
+                s = 0.9f;
+                v = 0.05f;
+            }
+        }
+        return fromHsv(h, s, Math.min(1f, v * bright));
+    }
+
+    static float[] toHsv(int c) {
+        float r = ((c >> 16) & 0xFF) / 255f, g = ((c >> 8) & 0xFF) / 255f, b = (c & 0xFF) / 255f;
+        float mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b)), d = mx - mn;
+        float h;
+        if (d == 0) h = 0;
+        else if (mx == r) h = 60f * (((g - b) / d) % 6f);
+        else if (mx == g) h = 60f * ((b - r) / d + 2f);
+        else h = 60f * ((r - g) / d + 4f);
+        if (h < 0) h += 360f;
+        return new float[]{h, mx == 0 ? 0 : d / mx, mx};
+    }
+
+    static int fromHsv(float h, float s, float v) {
+        float c = v * s, x = c * (1 - Math.abs((h / 60f) % 2 - 1)), m = v - c;
+        float r, g, b;
+        if (h < 60) { r = c; g = x; b = 0; }
+        else if (h < 120) { r = x; g = c; b = 0; }
+        else if (h < 180) { r = 0; g = c; b = x; }
+        else if (h < 240) { r = 0; g = x; b = c; }
+        else if (h < 300) { r = x; g = 0; b = c; }
+        else { r = c; g = 0; b = x; }
+        return clamp((r + m) * 255) << 16 | clamp((g + m) * 255) << 8 | clamp((b + m) * 255);
     }
 
     /** Rounds each channel to a multiple of 4 so near-identical colors don't resend. */

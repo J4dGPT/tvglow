@@ -233,18 +233,18 @@ public class CaptureService extends Service {
             int c = Math.round(smoothed[i * 3]) << 16
                     | Math.round(smoothed[i * 3 + 1]) << 8
                     | Math.round(smoothed[i * 3 + 2]);
-            out[i] = EdgeSampler.adjust(c, s.saturation, bright);
+            out[i] = EdgeSampler.style(c, s.style, bright);
         }
         int[] ordered = EdgeSampler.order(out, s.reverse, s.shift);
 
         // 3. Send at the chosen rate (single color is capped at 10/s; it fades in firmware).
         final int mode = s.mode;
-        int sendMs = mode == Settings.MODE_SINGLE ? 100 : 1000 / Math.min(s.fps, mode == Settings.MODE_SEGMENTS ? 20 : 30);
+        int sendMs = mode == Settings.MODE_SINGLE ? 100 : 1000 / Math.min(s.fps, mode == Settings.MODE_SEGMENTS ? 15 : 30);
         if (now - lastSend < sendMs) return;
 
         int[] seg = null;
         if (mode == Settings.MODE_SEGMENTS) {
-            boolean full = now - lastFull > 1000 || lastSentSeg == null || lastSentSeg.length != n;
+            boolean full = true; // resend every segment each tick so a dropped packet never leaves a stale zone
             if (full) {
                 lastFull = now;
                 lastSentSeg = new int[n];
