@@ -32,7 +32,7 @@ public class CaptureService extends Service {
     static final String EXTRA_CODE = "code";
     static final String EXTRA_DATA = "data";
 
-    private static final int W = 96, H = 54;
+    private int W = 96, H = 54;
     private static final String CHANNEL = "tvglow";
 
     static volatile boolean running = false;
@@ -48,7 +48,21 @@ public class CaptureService extends Service {
     private volatile GoveeClient client;
 
     private Settings settings;
-    private int[] pixels = new int[W * H];
+    private int[] pixels;
+    private volatile int[] latestTarget;
+    private final Runnable ticker = new Runnable() {
+        @Override
+        public void run() {
+            long now = SystemClock.uptimeMillis();
+            try {
+                tick(now);
+            } catch (Exception ignored) {
+            }
+            Settings s = settings;
+            int ms = s == null ? 50 : 1000 / Math.max(1, Math.min(s.fps, 30));
+            if (handler != null && running) handler.postDelayed(this, ms);
+        }
+    };
     private float[] smoothed;
     private long lastFrame, lastSettingsLoad, lastKeepAlive, darkSince, lastFull, lastSend, lastProcess;
     private int lastAvg, refreshIdx, frameCount, sendCount;
@@ -102,11 +116,17 @@ public class CaptureService extends Service {
             }
         }, handler);
 
-        reader = ImageReader.newInstance(W, H, PixelFormat.RGBA_8888, 2);
+        int[][] sizes = {{96, 54}, {192, 108}, {384, 216}};
+        int[] sz = sizes[Math.max(0, Math.min(2, settings.capture))];
+        W = sz[0];
+        H = sz[1];
+        pixels = new int[W * H];
+        reader = ImageReader.newInstance(W, H, PixelFormat.RGBA_8888, 3);
         reader.setOnImageAvailableListener(this::onImage, handler);
         display = projection.createVirtualDisplay("tvglow", W, H, 160,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 reader.getSurface(), null, handler);
+        handler.postDelayed(ticker, 50); // strip updates run on their own clock
         return START_NOT_STICKY;
     }
 
@@ -177,7 +197,7 @@ public class CaptureService extends Service {
             if (client == null) return;
 
             copyPixels(img);
-            process(now);
+            latestTarget = computeTarget(now);
         } finally {
             img.close();
         }
@@ -199,11 +219,12 @@ public class CaptureService extends Service {
         }
     }
 
-    private void process(long now) {
+    /** New screen frame: sample the edges into styled zone colors. */
+    private int[] computeTarget(long now) {
         Settings s = settings;
         int[] sideCounts = s.sideCounts();
         int n = sideCounts[0] + sideCounts[1] + sideCounts[2] + sideCounts[3];
-        if (n == 0) return;
+        if (n == 0) return null;
 
         if (EdgeSampler.allDark(pixels)) {
             if (darkSince == 0) darkSince = now;
@@ -220,6 +241,19 @@ public class CaptureService extends Service {
         target = EdgeSampler.blendNeighbors(target, sideCounts[3] > 0, 0.18f);
         float bright = s.brightness / 100f;
         for (int i = 0; i < n; i++) target[i] = EdgeSampler.style(target[i], s.style, bright);
+
+        return target;
+    }
+
+    /**
+     * Runs at the chosen Rate regardless of how often the TV delivers frames, gliding the
+     * strip toward the latest captured colors so slow capture still looks continuous.
+     */
+    private void tick(long now) {
+        int[] target = latestTarget;
+        if (target == null || client == null) return;
+        Settings s = settings;
+        int n = target.length;
 
         // 2. Adaptive temporal smoothing: small drifts glide, big changes snap.
         float dt = lastProcess == 0 ? 33f : Math.min(200f, now - lastProcess);
@@ -256,7 +290,7 @@ public class CaptureService extends Service {
         // 3. Send at the chosen rate (single color is capped at 10/s; it fades in firmware).
         final int mode = s.mode;
         int sendMs = mode == Settings.MODE_SINGLE ? 100 : 1000 / Math.min(s.fps, mode == Settings.MODE_SEGMENTS ? 20 : 30);
-        if (now - lastSend < sendMs) return;
+        if (now - lastSend < sendMs * 0.7f) return; // tolerate timer jitter
 
         int[] seg = null;
         if (mode == Settings.MODE_SEGMENTS) {
@@ -349,6 +383,7 @@ public class CaptureService extends Service {
         if (display != null) display.release();
         if (reader != null) reader.close();
         if (projection != null) projection.stop();
+        if (handler != null) handler.removeCallbacks(ticker);
         if (captureThread != null) captureThread.quitSafely();
         final GoveeClient c = client;
         client = null;

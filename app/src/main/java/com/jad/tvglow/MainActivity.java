@@ -29,7 +29,7 @@ public class MainActivity extends Activity {
     private String localStatus = null;
 
     private final Button[] sideBtns = new Button[4];
-    private Button detailBtn, styleBtn, modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
+    private Button captureBtn, detailBtn, styleBtn, modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
     private EditText ipField;
 
     private final Runnable poll = new Runnable() {
@@ -107,6 +107,11 @@ public class MainActivity extends Activity {
         LinearLayout row3 = row(root);
         styleBtn = button(row3, "", v -> { settings.style = (settings.style + 1) % 3; changed(); });
         detailBtn = button(row3, "", v -> { settings.detail = (settings.detail + 1) % 3; changed(); });
+        captureBtn = button(row3, "", v -> {
+            settings.capture = (settings.capture + 1) % 3;
+            changed();
+            if (CaptureService.running) local("Capture size applies next time you press Start sync.");
+        });
         brightBtn = button(row3, "", v -> { settings.brightness = Settings.next(Settings.BRIGHTNESS_OPTIONS, settings.brightness); changed(); });
         smoothBtn = button(row3, "", v -> { settings.smoothing = (settings.smoothing + 1) % 3; changed(); });
         fpsBtn = button(row3, "", v -> { settings.fps = Settings.next(Settings.FPS_OPTIONS, settings.fps); changed(); });
@@ -307,6 +312,7 @@ public class MainActivity extends Activity {
         if (settings.customSides() && total(sc) != settings.zoneCount()) {
             local("Per-side counts add up to " + total(sc) + " but Segments is " + settings.zoneCount() + ". Make them match.");
         }
+        captureBtn.setText("Capture: " + new String[]{"Small", "Medium", "Large"}[settings.capture]);
         detailBtn.setText("Detail: " + Settings.DETAIL_NAMES[settings.detail]);
         styleBtn.setText("Style: " + Settings.STYLE_NAMES[settings.style]);
         modeBtn.setText("Mode: " + Settings.MODE_NAMES[settings.mode]);

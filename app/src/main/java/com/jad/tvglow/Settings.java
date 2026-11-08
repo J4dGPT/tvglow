@@ -22,6 +22,7 @@ final class Settings {
     int shift = 0;
     int brightness = 100;
     int fps = 20;
+    int capture = 0; // 0 small, 1 medium, 2 large (applies on next Start)
     int detail = 1; // index into DETAIL_GROUP; 2 segments per zone by default
     int smoothing = 1;
     boolean gradient = false;
@@ -49,6 +50,7 @@ final class Settings {
         s.gradient = p.getBoolean("blend", s.gradient);
         s.mode = p.getInt("mode", s.mode);
         s.detail = p.getInt("detail", s.detail);
+        s.capture = p.getInt("capture", s.capture);
         s.style = p.getInt("style", s.style);
         s.appSegments = p.getInt("appSegments", s.appSegments);
         for (int i = 0; i < 4; i++) s.sides[i] = p.getInt("side" + i, 0);
@@ -70,6 +72,7 @@ final class Settings {
                 .putBoolean("blend", gradient)
                 .putInt("mode", mode)
                 .putInt("detail", detail)
+                .putInt("capture", capture)
                 .putInt("style", style)
                 .putInt("appSegments", appSegments)
                 .putString("ip", ip)
