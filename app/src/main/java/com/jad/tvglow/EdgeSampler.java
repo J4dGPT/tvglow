@@ -45,6 +45,20 @@ public final class EdgeSampler {
         return true;
     }
 
+    private static final float[] LIN = new float[256];
+
+    static {
+        for (int i = 0; i < 256; i++) LIN[i] = (float) Math.pow(i / 255.0, 2.2);
+    }
+
+    private static int toSrgb(float v) {
+        return clamp((float) (Math.pow(Math.max(0f, Math.min(1f, v)), 1 / 2.2) * 255));
+    }
+
+    /**
+     * Zone color: averaged in linear light, weighted toward bright and saturated pixels
+     * so a zone reads as its dominant vivid color instead of a muddy mean.
+     */
     private static int avg(int[] px, int w, int bx0, int by0, int bx1, int by1,
                            int[] r) {
         bx0 = Math.max(bx0, r[0]); by0 = Math.max(by0, r[1]);
@@ -53,20 +67,51 @@ public final class EdgeSampler {
         if (bx1 <= bx0) bx0 = bx1 - 1;
         if (by1 <= by0) by1 = Math.min(by0 + 1, r[3]);
         if (by1 <= by0) by0 = by1 - 1;
-        long sr = 0, sg = 0, sb = 0;
-        int n = 0;
+        float sr = 0, sg = 0, sb = 0, sw = 0;
         for (int y = by0; y < by1; y++) {
             int row = y * w;
             for (int x = bx0; x < bx1; x++) {
                 int c = px[row + x];
-                sr += (c >> 16) & 0xFF;
-                sg += (c >> 8) & 0xFF;
-                sb += c & 0xFF;
-                n++;
+                int ri = (c >> 16) & 0xFF, gi = (c >> 8) & 0xFF, bi = c & 0xFF;
+                int mx = Math.max(ri, Math.max(gi, bi)), mn = Math.min(ri, Math.min(gi, bi));
+                float sat = mx == 0 ? 0 : (mx - mn) / (float) mx;
+                float wt = 0.15f + (mx / 255f) * (1f + 3f * sat);
+                sr += LIN[ri] * wt;
+                sg += LIN[gi] * wt;
+                sb += LIN[bi] * wt;
+                sw += wt;
             }
         }
-        if (n == 0) return 0;
-        return (int) ((sr / n) << 16 | (sg / n) << 8 | (sb / n));
+        if (sw == 0) return 0;
+        return toSrgb(sr / sw) << 16 | toSrgb(sg / sw) << 8 | toSrgb(sb / sw);
+    }
+
+    /** Light blend with neighboring zones so the strip reads as one continuous glow. */
+    public static int[] blendNeighbors(int[] c, boolean circular, float k) {
+        int n = c.length;
+        if (n < 3) return c;
+        int[] out = new int[n];
+        for (int i = 0; i < n; i++) {
+            int l = i > 0 ? c[i - 1] : (circular ? c[n - 1] : c[i]);
+            int rr = i < n - 1 ? c[i + 1] : (circular ? c[0] : c[i]);
+            float cr = 0, cg = 0, cb = 0;
+            int[] src = {l, c[i], rr};
+            float[] wt = {k, 1 - 2 * k, k};
+            for (int j = 0; j < 3; j++) {
+                cr += LIN[(src[j] >> 16) & 0xFF] * wt[j];
+                cg += LIN[(src[j] >> 8) & 0xFF] * wt[j];
+                cb += LIN[src[j] & 0xFF] * wt[j];
+            }
+            out[i] = toSrgb(cr) << 16 | toSrgb(cg) << 8 | toSrgb(cb);
+        }
+        return out;
+    }
+
+    public static float colorDistance(int a, int b) {
+        float dr = ((a >> 16) & 0xFF) - ((b >> 16) & 0xFF);
+        float dg = ((a >> 8) & 0xFF) - ((b >> 8) & 0xFF);
+        float db = (a & 0xFF) - (b & 0xFF);
+        return (float) Math.sqrt(dr * dr + dg * dg + db * db);
     }
 
     public static int[] sample(int[] px, int w, int h, int count, boolean fourSides,
@@ -125,11 +170,11 @@ public final class EdgeSampler {
         return v < 0 ? 0 : v > 255 ? 255 : Math.round(v);
     }
 
-    /** Rounds each channel to a multiple of 8 so near-identical colors don't resend. */
+    /** Rounds each channel to a multiple of 4 so near-identical colors don't resend. */
     public static int quantize(int c) {
-        int r = Math.min(255, (((c >> 16) & 0xFF) + 4) & ~7);
-        int g = Math.min(255, (((c >> 8) & 0xFF) + 4) & ~7);
-        int b = Math.min(255, ((c & 0xFF) + 4) & ~7);
+        int r = Math.min(255, (((c >> 16) & 0xFF) + 2) & ~3);
+        int g = Math.min(255, (((c >> 8) & 0xFF) + 2) & ~3);
+        int b = Math.min(255, ((c & 0xFF) + 2) & ~3);
         return r << 16 | g << 8 | b;
     }
 

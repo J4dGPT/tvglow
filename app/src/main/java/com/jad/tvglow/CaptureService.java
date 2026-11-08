@@ -50,7 +50,8 @@ public class CaptureService extends Service {
     private Settings settings;
     private int[] pixels = new int[W * H];
     private float[] smoothed;
-    private long lastFrame, lastSettingsLoad, lastKeepAlive, darkSince, lastSlow, lastFull;
+    private long lastFrame, lastSettingsLoad, lastKeepAlive, darkSince, lastFull, lastSend, lastProcess;
+    private int lastAvg;
     private int[] lastSentSeg;
 
     @Override
@@ -158,7 +159,7 @@ public class CaptureService extends Service {
                 settings = fresh;
                 lastSettingsLoad = now;
             }
-            if (now - lastFrame < 1000 / settings.fps) return;
+            if (now - lastFrame < 30) return; // capture ~30/s; send rate is separate
             lastFrame = now;
             if (client == null) return;
 
@@ -199,7 +200,13 @@ public class CaptureService extends Service {
             status = "Syncing to strip at " + s.ip;
         }
 
-        int[] target = EdgeSampler.sample(pixels, W, H, n, s.fourSides, 0.12f);
+        // 1. Sample: vivid, linear-light weighted zones, then a light blend with neighbors.
+        int[] target = EdgeSampler.sample(pixels, W, H, n, s.fourSides, 0.14f);
+        target = EdgeSampler.blendNeighbors(target, s.fourSides, 0.18f);
+
+        // 2. Adaptive temporal smoothing: small drifts glide, big changes snap.
+        float dt = lastProcess == 0 ? 33f : Math.min(200f, now - lastProcess);
+        lastProcess = now;
         if (smoothed == null || smoothed.length != n * 3) {
             smoothed = new float[n * 3];
             for (int i = 0; i < n; i++) {
@@ -208,28 +215,33 @@ public class CaptureService extends Service {
                 smoothed[i * 3 + 2] = target[i] & 0xFF;
             }
         }
-        float a = Settings.SMOOTH_ALPHA[Math.max(0, Math.min(2, s.smoothing))];
+        float base = Settings.SMOOTH_ALPHA[Math.max(0, Math.min(2, s.smoothing))];
+        boolean sceneCut = EdgeSampler.colorDistance(EdgeSampler.average(target), lastAvg) > 110;
+        lastAvg = EdgeSampler.average(target);
         float bright = s.brightness / 100f;
         int[] out = new int[n];
         for (int i = 0; i < n; i++) {
             int t = target[i];
-            smoothed[i * 3] += a * (((t >> 16) & 0xFF) - smoothed[i * 3]);
-            smoothed[i * 3 + 1] += a * (((t >> 8) & 0xFF) - smoothed[i * 3 + 1]);
-            smoothed[i * 3 + 2] += a * ((t & 0xFF) - smoothed[i * 3 + 2]);
+            float tr = (t >> 16) & 0xFF, tg = (t >> 8) & 0xFF, tb = t & 0xFF;
+            float dr = tr - smoothed[i * 3], dg = tg - smoothed[i * 3 + 1], db = tb - smoothed[i * 3 + 2];
+            float dist = (float) Math.sqrt(dr * dr + dg * dg + db * db);
+            float a = sceneCut ? 1f : base + (1f - base) * Math.min(1f, dist / 160f);
+            a = 1f - (float) Math.pow(1f - a, dt / 33f); // frame-rate independent
+            smoothed[i * 3] += a * dr;
+            smoothed[i * 3 + 1] += a * dg;
+            smoothed[i * 3 + 2] += a * db;
             int c = Math.round(smoothed[i * 3]) << 16
                     | Math.round(smoothed[i * 3 + 1]) << 8
                     | Math.round(smoothed[i * 3 + 2]);
             out[i] = EdgeSampler.adjust(c, s.saturation, bright);
         }
         int[] ordered = EdgeSampler.order(out, s.reverse, s.shift);
-        boolean keepAlive = now - lastKeepAlive > 10000;
-        if (keepAlive) lastKeepAlive = now;
+
+        // 3. Send at the chosen rate (single color is capped at 10/s; it fades in firmware).
         final int mode = s.mode;
-        final int avg = EdgeSampler.average(out);
-        if (mode != Settings.MODE_REALTIME) {
-            if (now - lastSlow < 100) return; // these commands top out around 10/s
-            lastSlow = now;
-        }
+        int sendMs = mode == Settings.MODE_SINGLE ? 100 : 1000 / Math.min(s.fps, mode == Settings.MODE_SEGMENTS ? 20 : 30);
+        if (now - lastSend < sendMs) return;
+
         int[] seg = null;
         if (mode == Settings.MODE_SEGMENTS) {
             boolean full = now - lastFull > 1000 || lastSentSeg == null || lastSentSeg.length != n;
@@ -246,23 +258,35 @@ public class CaptureService extends Service {
                     seg[i] = -1;
                 } else {
                     seg[i] = q;
-                    lastSentSeg[i] = q;
                     any = true;
                 }
             }
             if (!any) return;
         }
-        final int[] segColors = seg;
-
         if (!sending.compareAndSet(false, true)) return; // drop frame if network is busy
+        lastSend = now;
+        if (seg != null) {
+            for (int i = 0; i < n; i++) if (seg[i] >= 0) lastSentSeg[i] = seg[i];
+        }
+        boolean keepAlive = now - lastKeepAlive > 10000;
+        if (keepAlive) lastKeepAlive = now;
+
+        final int[] segColors = seg;
+        final int avg = EdgeSampler.average(out);
         final boolean gradient = s.gradient;
         try {
             net.execute(() -> {
                 try {
                     GoveeClient c = client;
                     if (c == null) return;
-                    if (keepAlive) c.razer(true);
-                    c.colors(ordered, gradient);
+                    if (mode == Settings.MODE_SEGMENTS) {
+                        c.segments(segColors);
+                    } else if (mode == Settings.MODE_SINGLE) {
+                        c.color(avg);
+                    } else {
+                        if (keepAlive) c.razer(true);
+                        c.colors(ordered, gradient);
+                    }
                 } catch (Exception e) {
                     status = "Send failed: " + e.getMessage();
                 } finally {
