@@ -67,6 +67,8 @@ public class CaptureService extends Service {
     private long lastFrame, lastSettingsLoad, lastKeepAlive, darkSince, lastFull, lastSend, lastProcess;
     private int lastAvg, refreshIdx, frameCount, sendCount;
     private long statsSince;
+    private final float[] fpsHistory = new float[10];
+    private int fpsIdx;
     private int[] lastSentSeg;
 
     @Override
@@ -186,9 +188,16 @@ public class CaptureService extends Service {
             if (statsSince == 0) statsSince = now;
             if (now - statsSince >= 3000) {
                 float secs = (now - statsSince) / 1000f;
+                fpsHistory[fpsIdx % fpsHistory.length] = frameCount / secs;
+                fpsIdx++;
+                float avg = 0, min = 999;
+                int cnt = Math.min(fpsIdx, fpsHistory.length);
+                for (int i = 0; i < cnt; i++) { avg += fpsHistory[i]; min = Math.min(min, fpsHistory[i]); }
+                avg /= Math.max(1, cnt);
                 if (darkSince == 0 && client != null) {
-                    status = String.format(java.util.Locale.US, "Syncing to %s | screen %.0f fps | strip %.0f updates/s",
-                            settings.ip, frameCount / secs, sendCount / secs);
+                    status = String.format(java.util.Locale.US,
+                            "Syncing | screen: %.0f fps now, last 30s avg %.1f (lowest %.0f) | strip %.0f updates/s",
+                            frameCount / secs, avg, min, sendCount / secs);
                 }
                 frameCount = 0;
                 sendCount = 0;
