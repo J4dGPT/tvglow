@@ -25,6 +25,7 @@ final class Settings {
     int mode = MODE_SEGMENTS;
     int style = EdgeSampler.STYLE_COZY;
     int appSegments = 15;
+    int[] sides = {0, 0, 0, 0}; // custom left/top/right/bottom counts; all 0 = auto
     float saturation = 1.35f;
     String ip = "";
 
@@ -46,12 +47,15 @@ final class Settings {
         s.mode = p.getInt("mode", s.mode);
         s.style = p.getInt("style", s.style);
         s.appSegments = p.getInt("appSegments", s.appSegments);
+        for (int i = 0; i < 4; i++) s.sides[i] = p.getInt("side" + i, 0);
         s.ip = p.getString("ip", s.ip);
         return s;
     }
 
     void save(Context c) {
-        prefs(c).edit()
+        SharedPreferences.Editor e = prefs(c).edit();
+        for (int i = 0; i < 4; i++) e.putInt("side" + i, sides[i]);
+        e
                 .putInt("segments", segments)
                 .putBoolean("fourSides", fourSides)
                 .putBoolean("reverse", reverse)
@@ -72,6 +76,16 @@ final class Settings {
         if (mode == MODE_SEGMENTS) return appSegments;
         if (mode == MODE_SINGLE) return 12;
         return segments;
+    }
+
+    boolean customSides() {
+        return sides[0] + sides[1] + sides[2] + sides[3] > 0;
+    }
+
+    /** Per-side zone counts actually in use. */
+    int[] sideCounts() {
+        if (customSides()) return sides.clone();
+        return EdgeSampler.autoSideCounts(zoneCount(), fourSides);
     }
 
     static int next(int[] options, int current) {

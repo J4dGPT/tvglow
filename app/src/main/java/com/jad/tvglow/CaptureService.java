@@ -188,7 +188,9 @@ public class CaptureService extends Service {
 
     private void process(long now) {
         Settings s = settings;
-        int n = s.zoneCount();
+        int[] sideCounts = s.sideCounts();
+        int n = sideCounts[0] + sideCounts[1] + sideCounts[2] + sideCounts[3];
+        if (n == 0) return;
 
         if (EdgeSampler.allDark(pixels)) {
             if (darkSince == 0) darkSince = now;
@@ -201,8 +203,8 @@ public class CaptureService extends Service {
         }
 
         // 1. Sample: vivid, linear-light weighted zones, then a light blend with neighbors.
-        int[] target = EdgeSampler.sample(pixels, W, H, n, s.fourSides, 0.14f);
-        target = EdgeSampler.blendNeighbors(target, s.fourSides, 0.18f);
+        int[] target = EdgeSampler.sampleSides(pixels, W, H, sideCounts, 0.14f);
+        target = EdgeSampler.blendNeighbors(target, sideCounts[3] > 0, 0.18f);
         float bright = s.brightness / 100f;
         for (int i = 0; i < n; i++) target[i] = EdgeSampler.style(target[i], s.style, bright);
 

@@ -28,6 +28,7 @@ public class MainActivity extends Activity {
     private TextView statusView;
     private String localStatus = null;
 
+    private final Button[] sideBtns = new Button[4];
     private Button styleBtn, modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
     private EditText ipField;
 
@@ -70,14 +71,15 @@ public class MainActivity extends Activity {
         button(row1, "Stop", v -> stopAll());
         button(row1, "Find strip", v -> findStrip());
         button(row1, "Test LAN (red)", v -> testLan());
-        button(row1, "Test zones", v -> testPattern());
+        button(row1, "Test zones", v -> testPattern(false));
+        button(row1, "Test sides", v -> testPattern(true));
 
         section(root, "Strip layout");
         LinearLayout row2 = row(root);
         modeBtn = button(row2, "", v -> { settings.mode = (settings.mode + 1) % 3; settings.shift = 0; changed(); });
         sidesBtn = button(row2, "", v -> { settings.fourSides = !settings.fourSides; changed(); });
         reverseBtn = button(row2, "", v -> { settings.reverse = !settings.reverse; changed(); });
-        shiftBtn = button(row2, "", v -> { settings.shift = (settings.shift + 1) % settings.zoneCount(); changed(); });
+        shiftBtn = button(row2, "", v -> { settings.shift = (settings.shift + 1) % Math.max(1, total(settings.sideCounts())); changed(); });
         segBtn = button(row2, "", v -> {
             if (settings.mode == Settings.MODE_SEGMENTS) {
                 settings.appSegments = Settings.next(Settings.APP_SEGMENT_OPTIONS, settings.appSegments);
@@ -87,6 +89,19 @@ public class MainActivity extends Activity {
             settings.shift = 0;
             changed();
         });
+
+        section(root, "Segments per side (Test sides: left red, top green, right blue, bottom white)");
+        LinearLayout rowSides = row(root);
+        String[] sideNames = {"Left", "Top", "Right", "Bottom"};
+        for (int i = 0; i < 4; i++) {
+            final int side = i;
+            sideBtns[i] = button(rowSides, sideNames[i], v -> {
+                if (!settings.customSides()) settings.sides = settings.sideCounts();
+                settings.sides[side] = (settings.sides[side] + 1) % 9;
+                changed();
+            });
+        }
+        button(rowSides, "Auto", v -> { settings.sides = new int[]{0, 0, 0, 0}; changed(); });
 
         section(root, "Look");
         LinearLayout row3 = row(root);
@@ -233,7 +248,11 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void testPattern() {
+    private static int total(int[] c) {
+        return c[0] + c[1] + c[2] + c[3];
+    }
+
+    private void testPattern(boolean sides) {
         if (CaptureService.running) {
             local("Stop sync first, then run the test");
             return;
@@ -248,7 +267,9 @@ public class MainActivity extends Activity {
             }
             try (GoveeClient c = new GoveeClient(ip)) {
                 c.turnOn();
-                int[] colors = EdgeSampler.order(EdgeSampler.testPattern(s.zoneCount()), s.reverse, s.shift);
+                int[] counts = s.sideCounts();
+                int[] logical = sides ? EdgeSampler.sidePattern(counts) : EdgeSampler.testPattern(total(counts));
+                int[] colors = EdgeSampler.order(logical, s.reverse, s.shift);
                 if (s.mode == Settings.MODE_REALTIME) {
                     c.razer(true);
                     for (int i = 0; i < 3; i++) {
@@ -262,7 +283,9 @@ public class MainActivity extends Activity {
                 }
                 ui.post(() -> {
                     ipField.setText(ip);
-                    local("Sent zone test to " + ip + ". Red should start at the bottom of the left side. Wrong length? Match Segments to the count in the Govee app.");
+                    local(sides
+                            ? "Sides test sent. Each color should cover exactly one side of the TV. Adjust the per-side counts until it does."
+                            : "Sent zone test to " + ip + ". Red should start at the bottom of the left side.");
                 });
             } catch (Exception e) {
                 ui.post(() -> local("Test failed: " + e.getMessage()));
@@ -276,6 +299,13 @@ public class MainActivity extends Activity {
     }
 
     private void refreshLabels() {
+        int[] sc = settings.sideCounts();
+        String[] sn = {"Left", "Top", "Right", "Bottom"};
+        String tag = settings.customSides() ? "" : " (auto)";
+        for (int i = 0; i < 4; i++) sideBtns[i].setText(sn[i] + ": " + sc[i] + tag);
+        if (settings.customSides() && total(sc) != settings.zoneCount()) {
+            local("Per-side counts add up to " + total(sc) + " but Segments is " + settings.zoneCount() + ". Make them match.");
+        }
         styleBtn.setText("Style: " + Settings.STYLE_NAMES[settings.style]);
         modeBtn.setText("Mode: " + Settings.MODE_NAMES[settings.mode]);
         sidesBtn.setText(settings.fourSides ? "Sides: 4 (full loop)" : "Sides: 3 (left, top, right)");

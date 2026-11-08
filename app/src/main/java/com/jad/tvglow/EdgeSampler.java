@@ -145,6 +145,83 @@ public final class EdgeSampler {
         return out;
     }
 
+    /**
+     * Splits n zones across sides {left, top, right, bottom} in proportion to a 16:9
+     * screen. Used when no custom per-side counts are set.
+     */
+    public static int[] autoSideCounts(int n, boolean fourSides) {
+        double[] len = fourSides ? new double[]{9, 16, 9, 16} : new double[]{9, 16, 9, 0};
+        double total = 0;
+        for (double l : len) total += l;
+        int[] c = new int[4];
+        int used = 0;
+        for (int i = 0; i < 4; i++) { c[i] = (int) Math.floor(n * len[i] / total); used += c[i]; }
+        while (used < n) { // hand leftovers to the longest sides first
+            int best = 0;
+            double bestRem = -1;
+            for (int i = 0; i < 4; i++) {
+                double rem = n * len[i] / total - c[i];
+                if (len[i] > 0 && rem > bestRem) { bestRem = rem; best = i; }
+            }
+            c[best]++;
+            used++;
+        }
+        return c;
+    }
+
+    /**
+     * Samples with explicit zone counts per side, in path order: left (bottom to top),
+     * top (left to right), right (top to bottom), bottom (right to left).
+     */
+    public static int[] sampleSides(int[] px, int w, int h, int[] counts, float depthFrac) {
+        int[] r = contentRect(px, w, h);
+        int x0 = r[0], y0 = r[1], x1 = r[2], y1 = r[3];
+        int cw = x1 - x0, ch = y1 - y0;
+        int dx = Math.max(1, Math.round(cw * depthFrac));
+        int dy = Math.max(1, Math.round(ch * depthFrac));
+        int total = counts[0] + counts[1] + counts[2] + counts[3];
+        int[] out = new int[total];
+        int k = 0;
+        for (int side = 0; side < 4; side++) {
+            int m = counts[side];
+            for (int j = 0; j < m; j++) {
+                double a = (double) j / m, b = (double) (j + 1) / m;
+                switch (side) {
+                    case 0: { // left, bottom to top
+                        int ya = (int) Math.round(y1 - b * ch), yb = (int) Math.round(y1 - a * ch);
+                        out[k++] = avg(px, w, x0, ya, x0 + dx, yb, r);
+                        break;
+                    }
+                    case 1: { // top, left to right
+                        int xa = (int) Math.round(x0 + a * cw), xb = (int) Math.round(x0 + b * cw);
+                        out[k++] = avg(px, w, xa, y0, xb, y0 + dy, r);
+                        break;
+                    }
+                    case 2: { // right, top to bottom
+                        int ya = (int) Math.round(y0 + a * ch), yb = (int) Math.round(y0 + b * ch);
+                        out[k++] = avg(px, w, x1 - dx, ya, x1, yb, r);
+                        break;
+                    }
+                    default: { // bottom, right to left
+                        int xa = (int) Math.round(x1 - b * cw), xb = (int) Math.round(x1 - a * cw);
+                        out[k++] = avg(px, w, xa, y1 - dy, xb, y1, r);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Left red, top green, right blue, bottom white: for checking the side mapping. */
+    public static int[] sidePattern(int[] counts) {
+        int[] colors = {0xFF0000, 0x00FF00, 0x0000FF, 0xFFFFFF};
+        int total = counts[0] + counts[1] + counts[2] + counts[3];
+        int[] out = new int[total];
+        int k = 0;
+        for (int side = 0; side < 4; side++) for (int j = 0; j < counts[side]; j++) out[k++] = colors[side];
+        return out;
+    }
+
     /** Applies strip direction (reverse) and start offset (shift). */
     public static int[] order(int[] c, boolean reverse, int shift) {
         int n = c.length;
