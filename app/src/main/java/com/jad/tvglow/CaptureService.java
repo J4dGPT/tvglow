@@ -50,7 +50,7 @@ public class CaptureService extends Service {
     private Settings settings;
     private int[] pixels = new int[W * H];
     private float[] smoothed;
-    private long lastFrame, lastSettingsLoad, lastKeepAlive, darkSince;
+    private long lastFrame, lastSettingsLoad, lastKeepAlive, darkSince, lastSingle;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -135,7 +135,7 @@ public class CaptureService extends Service {
             try {
                 GoveeClient c = new GoveeClient(ip);
                 c.turnOn();
-                c.razer(true);
+                if (!settings.single) c.razer(true);
                 client = c;
                 lastKeepAlive = SystemClock.uptimeMillis();
                 status = "Syncing to strip at " + ip;
@@ -223,6 +223,10 @@ public class CaptureService extends Service {
         int[] ordered = EdgeSampler.order(out, s.reverse, s.shift);
         boolean keepAlive = now - lastKeepAlive > 10000;
         if (keepAlive) lastKeepAlive = now;
+        final boolean single = s.single;
+        final int avg = EdgeSampler.average(out);
+        if (single && now - lastSingle < 100) return; // official command fades; 10/s is plenty
+        if (single) lastSingle = now;
 
         if (!sending.compareAndSet(false, true)) return; // drop frame if network is busy
         final boolean gradient = s.gradient;

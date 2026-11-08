@@ -125,6 +125,14 @@ public final class EdgeSampler {
         return v < 0 ? 0 : v > 255 ? 255 : Math.round(v);
     }
 
+    /** Average of a color list (for single-color mode). */
+    public static int average(int[] c) {
+        long r = 0, g = 0, b = 0;
+        for (int x : c) { r += (x >> 16) & 0xFF; g += (x >> 8) & 0xFF; b += x & 0xFF; }
+        int n = Math.max(1, c.length);
+        return (int) ((r / n) << 16 | (g / n) << 8 | (b / n));
+    }
+
     /** Red at logical start fading to blue at logical end, for direction testing. */
     public static int[] testPattern(int count) {
         int[] out = new int[count];

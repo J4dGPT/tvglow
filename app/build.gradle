@@ -14,6 +14,16 @@ android {
         versionName '1.0'
     }
 
+    signingConfigs {
+        debug {
+            // Fixed key so new builds install over old ones on the TV.
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17

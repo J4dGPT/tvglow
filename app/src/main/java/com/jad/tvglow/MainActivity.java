@@ -28,7 +28,7 @@ public class MainActivity extends Activity {
     private TextView statusView;
     private String localStatus = null;
 
-    private Button sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
+    private Button modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
     private EditText ipField;
 
     private final Runnable poll = new Runnable() {
@@ -69,10 +69,12 @@ public class MainActivity extends Activity {
         Button start = button(row1, "Start sync", v -> requestCapture());
         button(row1, "Stop", v -> stopAll());
         button(row1, "Find strip", v -> findStrip());
-        button(row1, "Test direction", v -> testPattern());
+        button(row1, "Test LAN (red)", v -> testLan());
+        button(row1, "Test zones", v -> testPattern());
 
         section(root, "Strip layout");
         LinearLayout row2 = row(root);
+        modeBtn = button(row2, "", v -> { settings.single = !settings.single; changed(); });
         sidesBtn = button(row2, "", v -> { settings.fourSides = !settings.fourSides; changed(); });
         reverseBtn = button(row2, "", v -> { settings.reverse = !settings.reverse; changed(); });
         shiftBtn = button(row2, "", v -> { settings.shift = (settings.shift + 1) % settings.segments; changed(); });
@@ -110,7 +112,7 @@ public class MainActivity extends Activity {
         help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         help.setPadding(0, dp(20), 0, 0);
         help.setText("Start sync, allow screen capture, then press Home and play something.\n"
-                + "Test direction: the strip should go red at the bottom of the LEFT side, fading to blue at the end. "
+                + "Test LAN turns the whole strip red (checks the connection). Test zones: red at the bottom of the LEFT side, fading to blue. "
                 + "If red is on the right, toggle Reverse. Use Shift to nudge where the colors start.\n"
                 + "Netflix, Disney+ and HDMI inputs can't be captured; YouTube, Plex, MX Player and games work.");
         root.addView(help);
@@ -194,6 +196,38 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    private void testLan() {
+        if (CaptureService.running) {
+            local("Stop sync first, then run the test");
+            return;
+        }
+        local("Sending red to the whole strip...");
+        final Settings s = settings;
+        new Thread(() -> {
+            String ip = GoveeClient.resolveIp(this, s);
+            if (ip == null) {
+                ui.post(() -> local("No strip found. Turn on LAN Control in the Govee app."));
+                return;
+            }
+            try (GoveeClient c = new GoveeClient(ip)) {
+                c.razer(false);
+                Thread.sleep(150);
+                c.turnOn();
+                Thread.sleep(150);
+                for (int i = 0; i < 2; i++) {
+                    c.color(0xFF0000);
+                    Thread.sleep(200);
+                }
+                ui.post(() -> {
+                    ipField.setText(ip);
+                    local("Sent red to " + ip + ". Whole strip red = network works. Nothing = wrong address or LAN Control off.");
+                });
+            } catch (Exception e) {
+                ui.post(() -> local("Test failed: " + e.getMessage()));
+            }
+        }).start();
+    }
+
     private void testPattern() {
         if (CaptureService.running) {
             local("Stop sync first, then run the test");
@@ -217,7 +251,7 @@ public class MainActivity extends Activity {
                 }
                 ui.post(() -> {
                     ipField.setText(ip);
-                    local("Test showing for about a minute: red should start at the bottom of the left side. Press Stop to end.");
+                    local("Sent zone test to " + ip + ". Red should start at the bottom of the left side. Strip dark = this strip doesn't support zones; switch Mode to Single color.");
                 });
             } catch (Exception e) {
                 ui.post(() -> local("Test failed: " + e.getMessage()));
@@ -231,6 +265,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshLabels() {
+        modeBtn.setText("Mode: " + (settings.single ? "Single color" : "Zones"));
         sidesBtn.setText(settings.fourSides ? "Sides: 4 (full loop)" : "Sides: 3 (left, top, right)");
         reverseBtn.setText("Reverse: " + (settings.reverse ? "on" : "off"));
         shiftBtn.setText("Shift: " + settings.shift);

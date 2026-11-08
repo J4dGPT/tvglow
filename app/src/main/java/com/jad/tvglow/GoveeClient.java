@@ -36,6 +36,10 @@ final class GoveeClient implements Closeable {
         send(GoveeProtocol.turnJson(true));
     }
 
+    void color(int rgb) throws IOException {
+        send(GoveeProtocol.colorJson(rgb));
+    }
+
     void razer(boolean on) throws IOException {
         send(GoveeProtocol.razerJson(GoveeProtocol.razerEnable(on)));
     }

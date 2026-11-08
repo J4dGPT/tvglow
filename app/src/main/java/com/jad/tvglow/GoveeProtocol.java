@@ -28,6 +28,13 @@ public final class GoveeProtocol {
         return "{\"msg\":{\"cmd\":\"turn\",\"data\":{\"value\":" + (on ? 1 : 0) + "}}}";
     }
 
+    /** Official LAN command: whole strip one color. */
+    public static String colorJson(int rgb) {
+        return "{\"msg\":{\"cmd\":\"colorwc\",\"data\":{\"color\":{\"r\":" + ((rgb >> 16) & 0xFF)
+                + ",\"g\":" + ((rgb >> 8) & 0xFF) + ",\"b\":" + (rgb & 0xFF)
+                + "},\"colorTemInKelvin\":0}}}";
+    }
+
     static byte[] frame(int cmd, byte[] data) {
         int len = data.length;
         byte[] out = new byte[4 + len + 1];
