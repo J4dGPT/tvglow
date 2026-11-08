@@ -40,8 +40,8 @@ final class Settings {
     String ip = "";
     String wledIp = "";
     int ledCount = 120;
-    // Match colors calibration (see LedCorrection)
-    int calWarm = 0, calTint = 0, gamR = 100, gamG = 100, gamB = 100;
+    // Match colors calibration (color cube, see LedCorrection); each -10..10
+    int calWarm = 0, calTint = 0, calCyan = 0, calMag = 0, calYel = 0;
 
     private static SharedPreferences prefs(Context c) {
         return c.getSharedPreferences("tvglow", Context.MODE_PRIVATE);
@@ -68,11 +68,12 @@ final class Settings {
         s.ip = p.getString("ip", s.ip);
         s.wledIp = p.getString("wledIp", s.wledIp);
         s.ledCount = p.getInt("ledCount", s.ledCount);
-        s.calWarm = p.getInt("calWarm", 0);
-        s.calTint = p.getInt("calTint", 0);
-        s.gamR = p.getInt("gamR", 100);
-        s.gamG = p.getInt("gamG", 100);
-        s.gamB = p.getInt("gamB", 100);
+        // "cube" keys: values from the earlier per-channel calibration are intentionally dropped
+        s.calWarm = p.getInt("cubeWarm", 0);
+        s.calTint = p.getInt("cubeTint", 0);
+        s.calCyan = p.getInt("cubeCyan", 0);
+        s.calMag = p.getInt("cubeMag", 0);
+        s.calYel = p.getInt("cubeYel", 0);
         return s;
     }
 
@@ -97,11 +98,11 @@ final class Settings {
                 .putString("ip", ip)
                 .putString("wledIp", wledIp)
                 .putInt("ledCount", ledCount)
-                .putInt("calWarm", calWarm)
-                .putInt("calTint", calTint)
-                .putInt("gamR", gamR)
-                .putInt("gamG", gamG)
-                .putInt("gamB", gamB)
+                .putInt("cubeWarm", calWarm)
+                .putInt("cubeTint", calTint)
+                .putInt("cubeCyan", calCyan)
+                .putInt("cubeMag", calMag)
+                .putInt("cubeYel", calYel)
                 .apply();
     }
 
@@ -113,11 +114,11 @@ final class Settings {
     }
 
     LedCorrection correction() {
-        return new LedCorrection(calWarm, calTint, gamR, gamG, gamB);
+        return new LedCorrection(calWarm, calTint, calCyan, calMag, calYel);
     }
 
     String correctionKey() {
-        return calWarm + "," + calTint + "," + gamR + "," + gamG + "," + gamB;
+        return calWarm + "," + calTint + "," + calCyan + "," + calMag + "," + calYel;
     }
 
     int speedIdx() {

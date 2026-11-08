@@ -210,9 +210,9 @@ public class MainActivity extends Activity {
         button(r, "Reset colors", v -> {
             settings.calWarm = 0;
             settings.calTint = 0;
-            settings.gamR = 100;
-            settings.gamG = 100;
-            settings.gamB = 100;
+            settings.calCyan = 0;
+            settings.calMag = 0;
+            settings.calYel = 0;
             changed();
             local("Color matching reset to neutral.");
         }, false);

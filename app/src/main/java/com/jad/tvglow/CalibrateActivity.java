@@ -24,17 +24,18 @@ import java.util.concurrent.Executors;
  * current correction, and the viewer nudges one setting per step with left/right on the
  * remote until the glow on the wall matches the screen.
  *
- * Steps: white balance, white tint, then one mid-tone color per channel (sky blue tests
- * green, pink tests blue, violet tests red), which is where strips usually drift.
+ * Steps: white (warmth, then tint), then the three mixed colors where LED strips drift
+ * most: cyan, magenta and yellow. Each step moves one corner of the color cube (see
+ * LedCorrection), so it only affects colors near that one.
  */
 public class CalibrateActivity extends Activity {
     /** Message for the main screen after the wizard closes. */
     static volatile String result;
 
-    private static final String[] TITLES = {"White", "White tint", "Sky blue", "Pink", "Violet"};
-    private static final String[] LEFT = {"cooler", "greener", "bluer", "redder", "bluer"};
-    private static final String[] RIGHT = {"warmer", "pinker", "more cyan", "pinker", "redder"};
-    private static final int[] SWATCH = {0xFFFFFF, 0xFFFFFF, 0x00B4FF, 0xFF64B4, 0xA000FF};
+    private static final String[] TITLES = {"White", "White tint", "Cyan", "Magenta", "Yellow"};
+    private static final String[] LEFT = {"cooler", "greener", "bluer", "redder", "more orange"};
+    private static final String[] RIGHT = {"warmer", "pinker", "greener", "more purple", "greener"};
+    private static final int[] SWATCH = {0xFFFFFF, 0xFFFFFF, 0x00FFFF, 0xFF00FF, 0xFFFF00};
 
     private static final int BG = 0xFF0B0B12, TEXT = 0xFFECECF4, MUTED = 0xFF8C8CA3;
     private static final int ACCENT_A = 0xFFFF4FD8, ACCENT_B = 0xFF7C4DFF;
@@ -42,7 +43,7 @@ public class CalibrateActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService net = Executors.newSingleThreadExecutor();
     private Settings settings;
-    private int warm, tint, gR, gG, gB;
+    private final int[] vals = new int[5]; // warm, tint, cyan, magenta, yellow
     private int step;
     private boolean saved;
 
@@ -66,11 +67,11 @@ public class CalibrateActivity extends Activity {
         super.onCreate(b);
         result = null;
         settings = Settings.load(this);
-        warm = settings.calWarm;
-        tint = settings.calTint;
-        gR = settings.gamR;
-        gG = settings.gamG;
-        gB = settings.gamB;
+        vals[0] = settings.calWarm;
+        vals[1] = settings.calTint;
+        vals[2] = settings.calCyan;
+        vals[3] = settings.calMag;
+        vals[4] = settings.calYel;
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -164,7 +165,7 @@ public class CalibrateActivity extends Activity {
     }
 
     private LedCorrection current() {
-        return new LedCorrection(warm, tint, gR, gG, gB);
+        return new LedCorrection(vals[0], vals[1], vals[2], vals[3], vals[4]);
     }
 
     /** Shows the current step's swatch on the strip (latest values win). */
@@ -208,24 +209,7 @@ public class CalibrateActivity extends Activity {
         stepLabel.setText("Step " + (step + 1) + " of " + TITLES.length);
         leftLabel.setText("◀  " + LEFT[step]);
         rightLabel.setText(RIGHT[step] + "  ▶");
-        float pos;
-        switch (step) {
-            case 0:
-                pos = (warm + 10) / 20f;
-                break;
-            case 1:
-                pos = (tint + 10) / 20f;
-                break;
-            case 2:
-                pos = (180 - gG) / 140f;
-                break;
-            case 3:
-                pos = (180 - gB) / 140f;
-                break;
-            default:
-                pos = (180 - gR) / 140f;
-        }
-        pos = Math.max(0f, Math.min(1f, pos));
+        float pos = Math.max(0f, Math.min(1f, (vals[step] + 10) / 20f));
         spaceLeft.setLayoutParams(new LinearLayout.LayoutParams(0, dp(14), Math.max(0.001f, pos)));
         spaceRight.setLayoutParams(new LinearLayout.LayoutParams(0, dp(14), Math.max(0.001f, 1f - pos)));
     }
@@ -235,22 +219,7 @@ public class CalibrateActivity extends Activity {
     }
 
     private void adjust(int dir) {
-        switch (step) {
-            case 0:
-                warm = clamp(warm + dir, -10, 10);
-                break;
-            case 1:
-                tint = clamp(tint + dir, -10, 10);
-                break;
-            case 2:
-                gG = clamp(gG - 5 * dir, 40, 180);
-                break;
-            case 3:
-                gB = clamp(gB - 5 * dir, 40, 180);
-                break;
-            default:
-                gR = clamp(gR - 5 * dir, 40, 180);
-        }
+        vals[step] = clamp(vals[step] + dir, -10, 10);
         showStep();
         send();
     }
@@ -263,11 +232,11 @@ public class CalibrateActivity extends Activity {
             return;
         }
         Settings s = Settings.load(this); // fresh copy, in case discovery saved the address
-        s.calWarm = warm;
-        s.calTint = tint;
-        s.gamR = gR;
-        s.gamG = gG;
-        s.gamB = gB;
+        s.calWarm = vals[0];
+        s.calTint = vals[1];
+        s.calCyan = vals[2];
+        s.calMag = vals[3];
+        s.calYel = vals[4];
         s.style = EdgeSampler.STYLE_ACCURATE;
         s.save(this);
         saved = true;
