@@ -228,7 +228,7 @@ public class CaptureService extends Service {
             float tr = (t >> 16) & 0xFF, tg = (t >> 8) & 0xFF, tb = t & 0xFF;
             float dr = tr - smoothed[i * 3], dg = tg - smoothed[i * 3 + 1], db = tb - smoothed[i * 3 + 2];
             float dist = (float) Math.sqrt(dr * dr + dg * dg + db * db);
-            float a = sceneCut ? 1f : base + (1f - base) * Math.min(1f, dist / 160f);
+            float a = sceneCut ? 1f : base + (1f - base) * Math.min(1f, dist / 90f); // real changes snap sooner
             a = 1f - (float) Math.pow(1f - a, dt / 33f); // frame-rate independent
             smoothed[i * 3] += a * dr;
             smoothed[i * 3 + 1] += a * dg;

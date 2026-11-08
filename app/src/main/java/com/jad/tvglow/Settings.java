@@ -12,14 +12,14 @@ final class Settings {
     static final int[] FPS_OPTIONS = {10, 15, 20};
     static final int[] BRIGHTNESS_OPTIONS = {40, 60, 80, 100};
     static final String[] SMOOTH_NAMES = {"Fast", "Balanced", "Smooth"};
-    static final float[] SMOOTH_ALPHA = {0.45f, 0.2f, 0.08f};
+    static final float[] SMOOTH_ALPHA = {0.85f, 0.55f, 0.3f}; // original speeds
 
     int segments = 20;
     boolean fourSides = false;
     boolean reverse = false;
     int shift = 0;
     int brightness = 100;
-    int fps = 15;
+    int fps = 20;
     int smoothing = 1;
     boolean gradient = false;
     int mode = MODE_SEGMENTS;
@@ -41,7 +41,7 @@ final class Settings {
         s.reverse = p.getBoolean("reverse", s.reverse);
         s.shift = p.getInt("shift", s.shift);
         s.brightness = p.getInt("brightness", s.brightness);
-        s.fps = p.getInt("rate3", s.fps);
+        s.fps = p.getInt("rate4", s.fps);
         s.smoothing = p.getInt("smoothing", s.smoothing);
         s.gradient = p.getBoolean("blend", s.gradient);
         s.mode = p.getInt("mode", s.mode);
@@ -61,7 +61,7 @@ final class Settings {
                 .putBoolean("reverse", reverse)
                 .putInt("shift", shift)
                 .putInt("brightness", brightness)
-                .putInt("rate3", fps)
+                .putInt("rate4", fps)
                 .putInt("smoothing", smoothing)
                 .putBoolean("blend", gradient)
                 .putInt("mode", mode)
