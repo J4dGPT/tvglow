@@ -94,3 +94,9 @@ TV Glow streams WLED's realtime UDP protocol (DRGB/DNRGB, port 21324). WLED goes
 - Zones are sampled as the plain average of each edge region, so hues stay true (no bias toward saturated pixels).
 - **Style: Accurate** keeps hue within about 3 degrees; Cozy and Vivid are deliberate looks.
 - **Match colors** (Look card, with sync stopped) calibrates the strip to your TV and wall: the TV shows a reference color, the strip shows the same color, and left/right on the remote adjusts it until they match. Steps: white, white tint, cyan, magenta, yellow. Each step moves one corner of an RGB color cube (the HyperHDR approach), so it only affects colors near that corner and dark colors stay true. OK goes to the next step, BACK to the previous one. Finishing saves the result and switches to Accurate. **Reset colors** returns to neutral.
+
+## Self-healing sync
+
+- **Auto-resume:** if sync was on when the app stopped (update, reboot), opening TV Glow asks to resume right away.
+- **Strip health:** while syncing, the app asks the strip for its status every 3 seconds and listens for the answer. If the strip goes quiet, it scans the network and reconnects if the strip moved to a new address. The status line shows "strip answering" or "strip not answering".
+- **On-screen notices** appear over whatever you're watching: when sync starts, when the strip stops answering, and when the picture can't be captured (protected apps, HDMI inputs).

@@ -31,6 +31,7 @@ public class MainActivity extends Activity {
     private Settings settings;
     private TextView statusView;
     private String localStatus = null;
+    private boolean autoResumeTried;
 
     private final Button[] sideBtns = new Button[4];
     private Button ledBtn, captureBtn, detailBtn, styleBtn, modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
@@ -231,6 +232,11 @@ public class MainActivity extends Activity {
         if (done != null) {
             CalibrateActivity.result = null;
             local(done);
+        } else if (!autoResumeTried && settings.wasSyncing && !CaptureService.running) {
+            // Sync was on before an update, reboot or crash: ask to resume right away.
+            autoResumeTried = true;
+            local("Resuming sync...");
+            requestCapture();
         }
         ui.post(poll);
     }
@@ -256,9 +262,13 @@ public class MainActivity extends Activity {
         super.onActivityResult(req, result, data);
         if (req != REQ_CAPTURE) return;
         if (result != RESULT_OK || data == null) {
+            settings.wasSyncing = false; // declined: don't keep asking on every launch
+            settings.save(this);
             local("Screen capture permission was denied");
             return;
         }
+        settings.wasSyncing = true; // resume automatically after updates and reboots
+        settings.save(this);
         Intent svc = new Intent(this, CaptureService.class)
                 .putExtra(CaptureService.EXTRA_CODE, result)
                 .putExtra(CaptureService.EXTRA_DATA, data);
@@ -268,6 +278,8 @@ public class MainActivity extends Activity {
 
     private void stopAll() {
         localStatus = null;
+        settings.wasSyncing = false; // stopped on purpose: no resume prompt
+        settings.save(this);
         if (CaptureService.running) {
             startService(new Intent(this, CaptureService.class).setAction(CaptureService.ACTION_STOP));
         } else {
@@ -285,6 +297,10 @@ public class MainActivity extends Activity {
     }
 
     private void findStrip() {
+        if (CaptureService.running) {
+            local("Sync already keeps track of the strip. Stop sync first to search manually.");
+            return;
+        }
         local("Searching the network...");
         new Thread(() -> {
             List<GoveeClient.Found> list = GoveeClient.discover(this, 3000);
@@ -296,6 +312,7 @@ public class MainActivity extends Activity {
                 GoveeClient.Found pick = list.get(0);
                 for (GoveeClient.Found f : list) if ("H6167".equalsIgnoreCase(f.sku)) pick = f;
                 settings.ip = pick.ip;
+                settings.sku = pick.sku;
                 ipField.setText(pick.ip);
                 changed();
                 local("Found " + pick.sku + " at " + pick.ip + (list.size() > 1 ? " (" + list.size() + " devices total)" : ""));

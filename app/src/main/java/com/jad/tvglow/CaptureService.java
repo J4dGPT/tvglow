@@ -19,8 +19,10 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.Process;
 import android.os.SystemClock;
+import android.widget.Toast;
 
 import java.util.Arrays;
 import java.util.List;
@@ -59,6 +61,11 @@ public class CaptureService extends Service {
     private volatile GoveeClient client;
     private volatile WledClient wled;
     private volatile int activeMode = -1;
+    private volatile StripMonitor monitor;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private long connectedAt, lastProbe, lastScan, scanCheckAt;
+    private boolean stripWarned, darkWarned;
+    private volatile String stripNote = "";
     private WifiManager.WifiLock perfLock, lowLatencyLock;
 
     private Settings settings;
@@ -83,8 +90,10 @@ public class CaptureService extends Service {
     private final Runnable ticker = new Runnable() {
         @Override
         public void run() {
+            long now = SystemClock.uptimeMillis();
             try {
-                tick(SystemClock.uptimeMillis(), false);
+                tick(now, false);
+                checkStrip(now);
             } catch (Exception ignored) {
             }
             if (handler != null && running) handler.postDelayed(this, tickMs());
@@ -222,6 +231,7 @@ public class CaptureService extends Service {
                     wled = new WledClient(ip);
                     activeMode = mode;
                     status = "Syncing to WLED at " + ip;
+                    toast("TV Glow is syncing");
                 } catch (Exception e) {
                     status = "Could not reach WLED at " + ip + ": " + e.getMessage();
                     stopSelf();
@@ -242,8 +252,18 @@ public class CaptureService extends Service {
                 if (mode == Settings.MODE_REALTIME) c.razer(true); else c.razer(false);
                 lastKeepAlive = SystemClock.uptimeMillis();
                 activeMode = mode;
+                try {
+                    StripMonitor m = new StripMonitor(ip);
+                    m.sku = settings.sku;
+                    m.probe();
+                    monitor = m;
+                } catch (Exception e) {
+                    monitor = null; // health checks are a bonus; sync still works
+                }
+                connectedAt = SystemClock.uptimeMillis();
                 client = c;
                 status = "Syncing to strip at " + ip;
+                toast("TV Glow is syncing");
             } catch (Exception e) {
                 status = "Could not reach strip at " + ip + ": " + e.getMessage();
                 stopSelf();
@@ -331,8 +351,9 @@ public class CaptureService extends Service {
                     ? String.format(Locale.US, "%.0f cmds/s", cmdCount / secs)
                     : String.format(Locale.US, "%.0f updates/s", sendCount / secs);
             String lag = lagN > 0 ? String.format(Locale.US, " · capture lag %.0f ms", lagSum / lagN) : "";
-            status = String.format(Locale.US, "%s · screen %.0f fps (30s avg %.1f)%s · strip %s",
-                    Settings.MODE_NAMES[Math.max(0, Math.min(3, s.mode))], frameCount / secs, avg, lag, strip);
+            String health = monitor == null ? "" : stripNote.isEmpty() ? " · strip answering ✓" : stripNote;
+            status = String.format(Locale.US, "%s · screen %.0f fps (30s avg %.1f)%s · strip %s%s",
+                    Settings.MODE_NAMES[Math.max(0, Math.min(3, s.mode))], frameCount / secs, avg, lag, strip, health);
         }
         frameCount = 0;
         sendCount = 0;
@@ -353,10 +374,15 @@ public class CaptureService extends Service {
         if (dark) {
             if (darkSince == 0) darkSince = now;
             if (now - darkSince > 3000) {
-                status = "Screen reads black. Protected apps (Netflix etc.) block capture.";
+                status = "Screen reads black: protected apps (Netflix etc.) and HDMI inputs (PS5) can't be captured.";
+                if (!darkWarned) {
+                    darkWarned = true;
+                    toast("TV Glow can't see this picture. Protected apps and HDMI inputs show up black.");
+                }
             }
         } else if (darkSince != 0) {
             darkSince = 0;
+            darkWarned = false;
         }
 
         int[] rect = stableRect.update(EdgeSampler.contentRect(pixels, W, H), W, H, dark, now);
@@ -366,6 +392,89 @@ public class CaptureService extends Service {
         float bright = s.brightness / 100f;
         for (int i = 0; i < n; i++) target[i] = EdgeSampler.style(target[i], s.style, bright);
         return target;
+    }
+
+    /**
+     * Strip health: probe every 3 s. If nothing comes back for 7 s, scan the network; if the
+     * strip answers from a new address, reconnect there. After 12 s of silence, say so.
+     */
+    private void checkStrip(long now) {
+        StripMonitor m = monitor;
+        if (m == null || client == null) return;
+        if (now - lastProbe >= 3000) {
+            lastProbe = now;
+            m.probe();
+        }
+        long silentFor = now - Math.max(m.lastHeard, connectedAt);
+        if (silentFor < 7000) {
+            stripNote = "";
+            stripWarned = false;
+            return;
+        }
+        if (scanCheckAt == 0 && now - lastScan >= 8000) {
+            lastScan = now;
+            scanCheckAt = now + 2500;
+            m.scan();
+            return;
+        }
+        if (scanCheckAt != 0 && now >= scanCheckAt) {
+            scanCheckAt = 0;
+            java.util.Map<String, String> found = m.found();
+            if (found.containsKey(m.ip())) {
+                m.lastHeard = now; // it's there; it just doesn't answer status requests
+                return;
+            }
+            String moved = StripMonitor.pick(found, m.sku);
+            if (moved != null) {
+                reconnect(moved, found.get(moved));
+                return;
+            }
+        }
+        if (silentFor > 12000) {
+            stripNote = " · strip not answering";
+            if (!stripWarned) {
+                stripWarned = true;
+                toast("TV Glow: the strip isn't answering. Check it's powered and LAN Control is on in the Govee app.");
+            }
+        }
+    }
+
+    private void reconnect(String newIp, String sku) {
+        try {
+            GoveeClient nc = new GoveeClient(newIp);
+            nc.turnOn();
+            if (settings.mode == Settings.MODE_REALTIME) nc.razer(true);
+            GoveeClient old = client;
+            client = nc;
+            if (old != null) old.close();
+            StripMonitor m = monitor;
+            if (m != null) {
+                m.setIp(newIp);
+                m.lastHeard = SystemClock.uptimeMillis();
+                if (sku != null && !"?".equals(sku)) m.sku = sku;
+            }
+            lastKeepAlive = SystemClock.uptimeMillis();
+            scheduler = null;
+            lastSentColors = null;
+            settings.ip = newIp;
+            Settings saved = Settings.load(this);
+            saved.ip = newIp;
+            if (sku != null && !"?".equals(sku)) saved.sku = sku;
+            saved.save(this);
+            stripNote = "";
+            toast("TV Glow: the strip moved to a new address. Reconnected.");
+        } catch (Exception e) {
+            stripNote = " · reconnect failed";
+        }
+    }
+
+    private void toast(String msg) {
+        main.post(() -> {
+            try {
+                Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_LONG).show();
+            } catch (Throwable ignored) {
+            }
+        });
     }
 
     private long tickMs() {
@@ -513,9 +622,12 @@ public class CaptureService extends Service {
         releaseWifiLocks();
         final GoveeClient c = client;
         final WledClient w = wled;
+        final StripMonitor m = monitor;
         client = null;
         wled = null;
+        monitor = null;
         net.execute(() -> {
+            if (m != null) m.close();
             if (w != null) {
                 try {
                     w.release();

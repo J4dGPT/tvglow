@@ -142,6 +142,7 @@ final class GoveeClient implements Closeable {
         Found pick = list.get(0);
         for (Found f : list) if ("H6167".equalsIgnoreCase(f.sku)) pick = f;
         s.ip = pick.ip;
+        s.sku = pick.sku;
         s.save(ctx);
         return pick.ip;
     }
