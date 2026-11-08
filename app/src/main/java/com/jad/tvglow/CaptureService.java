@@ -67,6 +67,8 @@ public class CaptureService extends Service {
     private int[] latestTarget;
     private float[] smoothed;
     private SegmentScheduler scheduler;
+    private LedCorrection correction = LedCorrection.NONE;
+    private String correctionKey = "";
     private int[] lastSentColors;
     private long lastSettingsLoad, lastKeepAlive, darkSince, lastSend, lastProcess;
     private int lastAvg;
@@ -116,6 +118,7 @@ public class CaptureService extends Service {
         }
 
         settings = Settings.load(this);
+        updateCorrection();
         running = true;
         status = "Connecting to strip...";
         acquireWifiLocks();
@@ -278,7 +281,16 @@ public class CaptureService extends Service {
         Settings fresh = Settings.load(this);
         fresh.ip = settings.ip; // keep the resolved address
         settings = fresh;
+        updateCorrection();
         if (activeMode != -1 && fresh.mode != activeMode) switchMode(fresh.mode);
+    }
+
+    private void updateCorrection() {
+        String key = settings.correctionKey();
+        if (!key.equals(correctionKey)) {
+            correction = settings.correction();
+            correctionKey = key;
+        }
     }
 
     /** Mode changed in the app while syncing: switch the strip over without a restart. */
@@ -349,7 +361,8 @@ public class CaptureService extends Service {
 
         int[] rect = stableRect.update(EdgeSampler.contentRect(pixels, W, H), W, H, dark, now);
         int[] target = EdgeSampler.sampleSides(pixels, W, H, sideCounts, 0.14f, rect);
-        target = EdgeSampler.blendNeighbors(target, sideCounts[3] > 0, 0.18f);
+        float blend = s.style == EdgeSampler.STYLE_ACCURATE ? 0.08f : 0.18f; // Accurate keeps zones distinct
+        target = EdgeSampler.blendNeighbors(target, sideCounts[3] > 0, blend);
         float bright = s.brightness / 100f;
         for (int i = 0; i < n; i++) target[i] = EdgeSampler.style(target[i], s.style, bright);
         return target;
@@ -415,14 +428,14 @@ public class CaptureService extends Service {
                     | Math.round(smoothed[i * 3 + 1]) << 8
                     | Math.round(smoothed[i * 3 + 2]);
         }
-        int[] ordered = EdgeSampler.order(out, s.reverse, s.shift);
+        int[] ordered = correction.apply(EdgeSampler.order(out, s.reverse, s.shift));
 
         try {
             if (mode == Settings.MODE_SEGMENTS) {
                 sendSegments(gc, ordered, s, now);
             } else if (mode == Settings.MODE_SINGLE) {
                 if (now - lastSend >= 90) {
-                    gc.color(EdgeSampler.average(out));
+                    gc.color(correction.apply(EdgeSampler.average(out)));
                     markSent(now, 1);
                 }
             } else {

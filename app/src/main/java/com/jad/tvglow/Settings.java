@@ -40,6 +40,8 @@ final class Settings {
     String ip = "";
     String wledIp = "";
     int ledCount = 120;
+    // Match colors calibration (see LedCorrection)
+    int calWarm = 0, calTint = 0, gamR = 100, gamG = 100, gamB = 100;
 
     private static SharedPreferences prefs(Context c) {
         return c.getSharedPreferences("tvglow", Context.MODE_PRIVATE);
@@ -66,6 +68,11 @@ final class Settings {
         s.ip = p.getString("ip", s.ip);
         s.wledIp = p.getString("wledIp", s.wledIp);
         s.ledCount = p.getInt("ledCount", s.ledCount);
+        s.calWarm = p.getInt("calWarm", 0);
+        s.calTint = p.getInt("calTint", 0);
+        s.gamR = p.getInt("gamR", 100);
+        s.gamG = p.getInt("gamG", 100);
+        s.gamB = p.getInt("gamB", 100);
         return s;
     }
 
@@ -90,6 +97,11 @@ final class Settings {
                 .putString("ip", ip)
                 .putString("wledIp", wledIp)
                 .putInt("ledCount", ledCount)
+                .putInt("calWarm", calWarm)
+                .putInt("calTint", calTint)
+                .putInt("gamR", gamR)
+                .putInt("gamG", gamG)
+                .putInt("gamB", gamB)
                 .apply();
     }
 
@@ -98,6 +110,14 @@ final class Settings {
         if (mode == MODE_SEGMENTS || mode == MODE_REALTIME) return appSegments; // must match the Govee app
         if (mode == MODE_SINGLE) return 12;
         return segments;
+    }
+
+    LedCorrection correction() {
+        return new LedCorrection(calWarm, calTint, gamR, gamG, gamB);
+    }
+
+    String correctionKey() {
+        return calWarm + "," + calTint + "," + gamR + "," + gamG + "," + gamB;
     }
 
     int speedIdx() {

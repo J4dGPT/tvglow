@@ -88,3 +88,9 @@ TV Glow streams WLED's realtime UDP protocol (DRGB/DNRGB, port 21324). WLED goes
 - App segments mode uses an error-driven scheduler: each Govee command can paint any set of segments, so scene changes repaint the whole strip in one command and detail fills in next, within a token-bucket budget the strip can absorb without queueing.
 - Letterbox detection ignores subtitles and only moves after the bars are stable, so dark scenes don't make zones jump.
 - **Speed** sets how hard the strip is driven (Safe, Fast, Turbo, Max). If the lights start trailing the picture, step down one level.
+
+## Accurate colors
+
+- Zones are sampled as the plain average of each edge region, so hues stay true (no bias toward saturated pixels).
+- **Style: Accurate** keeps hue within about 3 degrees; Cozy and Vivid are deliberate looks.
+- **Match colors** (Look card, with sync stopped) calibrates the strip to your TV and wall: the TV shows a reference color, the strip shows the same color, and left/right on the remote adjusts it until they match. Steps: white, white tint, sky blue (green response), pink (blue response), violet (red response). OK goes to the next step, BACK to the previous one. Finishing saves the result and switches to Accurate. **Reset colors** returns to neutral.

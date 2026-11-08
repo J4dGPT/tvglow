@@ -199,6 +199,23 @@ public class MainActivity extends Activity {
             if (CaptureService.running) local("Capture size applies next time you press Start sync.");
         }, false);
         gradBtn = button(r, "", v -> { settings.gradient = !settings.gradient; changed(); }, false);
+        r = row(look);
+        button(r, "Match colors", v -> {
+            if (CaptureService.running) {
+                local("Stop sync first, then press Match colors.");
+                return;
+            }
+            startActivity(new Intent(this, CalibrateActivity.class));
+        }, false);
+        button(r, "Reset colors", v -> {
+            settings.calWarm = 0;
+            settings.calTint = 0;
+            settings.gamR = 100;
+            settings.gamG = 100;
+            settings.gamB = 100;
+            changed();
+            local("Color matching reset to neutral.");
+        }, false);
 
         setContentView(scroll);
         refreshLabels();
@@ -208,6 +225,13 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        settings = Settings.load(this); // the color wizard may have saved new values
+        refreshLabels();
+        String done = CalibrateActivity.result;
+        if (done != null) {
+            CalibrateActivity.result = null;
+            local(done);
+        }
         ui.post(poll);
     }
 

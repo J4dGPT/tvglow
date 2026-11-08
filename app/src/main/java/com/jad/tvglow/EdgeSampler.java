@@ -67,8 +67,9 @@ public final class EdgeSampler {
     }
 
     /**
-     * Zone color: weighted toward saturated pixels so a zone reads as its dominant
-     * color instead of a washed-out mean pulled up by white text and highlights.
+     * Zone color: the plain average of the zone. Weighting toward saturated pixels was
+     * dropped because it dragged hues toward the nearest primary (pink read as red,
+     * cyan as blue). Styles decide the look afterwards; sampling stays truthful.
      */
     private static int avg(int[] px, int w, int bx0, int by0, int bx1, int by1,
                            int[] r) {
@@ -78,24 +79,20 @@ public final class EdgeSampler {
         if (bx1 <= bx0) bx0 = bx1 - 1;
         if (by1 <= by0) by1 = Math.min(by0 + 1, r[3]);
         if (by1 <= by0) by0 = by1 - 1;
-        float sr = 0, sg = 0, sb = 0, sw = 0;
+        long sr = 0, sg = 0, sb = 0;
+        int cnt = 0;
         for (int y = by0; y < by1; y++) {
             int row = y * w;
             for (int x = bx0; x < bx1; x++) {
                 int c = px[row + x];
-                int ri = (c >> 16) & 0xFF, gi = (c >> 8) & 0xFF, bi = c & 0xFF;
-                int mx = Math.max(ri, Math.max(gi, bi)), mn = Math.min(ri, Math.min(gi, bi));
-                float sat = mx == 0 ? 0 : (mx - mn) / (float) mx;
-                // Saturated pixels dominate; white/grey UI and highlights count little.
-                float wt = 0.1f + (mx / 255f) * (0.3f + 4f * sat * sat);
-                sr += ri * wt;
-                sg += gi * wt;
-                sb += bi * wt;
-                sw += wt;
+                sr += (c >> 16) & 0xFF;
+                sg += (c >> 8) & 0xFF;
+                sb += c & 0xFF;
+                cnt++;
             }
         }
-        if (sw == 0) return 0;
-        return clamp(sr / sw) << 16 | clamp(sg / sw) << 8 | clamp(sb / sw);
+        if (cnt == 0) return 0;
+        return (int) ((sr + cnt / 2) / cnt) << 16 | (int) ((sg + cnt / 2) / cnt) << 8 | (int) ((sb + cnt / 2) / cnt);
     }
 
     /** Light blend with neighboring zones so the strip reads as one continuous glow. */
@@ -270,7 +267,7 @@ public final class EdgeSampler {
      * amber, and dark scenes keep a faint ember glow instead of going black.
      */
     public static int style(int c, int style, float bright) {
-        if (style == STYLE_ACCURATE) return adjust(c, 1.1f, bright);
+        if (style == STYLE_ACCURATE) return adjust(c, 1.15f, bright); // slight lift: a wall dulls colored light
         float[] hsv = toHsv(c);
         float h = hsv[0], s = hsv[1], v = hsv[2];
         if (style == STYLE_VIVID) {
