@@ -30,6 +30,16 @@ final class WledClient implements Closeable {
         }
     }
 
+    /**
+     * All LEDs dark, and kept dark: timeout 255 tells WLED to stay on this data instead of
+     * returning to its own effect, so the strip doesn't light back up while the TV is off.
+     */
+    void blackout(int ledCount) throws IOException {
+        for (byte[] p : WledProtocol.packets(new int[Math.max(1, ledCount)], 255)) {
+            socket.send(new DatagramPacket(p, p.length, address, PORT));
+        }
+    }
+
     /** Release realtime mode right away so WLED returns to its normal effect. */
     void release() throws IOException {
         byte[] p = {2, 1};

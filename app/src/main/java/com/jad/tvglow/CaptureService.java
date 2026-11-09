@@ -4,8 +4,10 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
@@ -20,6 +22,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.Process;
 import android.os.SystemClock;
 import android.widget.Toast;
@@ -90,6 +93,15 @@ public class CaptureService extends Service {
     private long lastReadAt;
     private boolean drainPosted;
 
+    // TV power: the lights fade out and switch off with the TV, and come back with it
+    private volatile boolean tvOff;
+    private volatile long fadeInAt; // uptime when the strip last switched on; 0 = no fade
+    private static final long FADE_IN_MS = 700;
+    private boolean powerWatch;
+
+    // TV memory, for the status line
+    private long memLowestMb = Long.MAX_VALUE;
+
     // Stats for the status line
     private long statsSince;
     private int frameCount, readCount, sendCount, cmdCount, lagN;
@@ -103,11 +115,39 @@ public class CaptureService extends Service {
             long now = SystemClock.uptimeMillis();
             try {
                 reloadSettings(now); // so changes apply even while the picture is still
-                tick(now, false);
-                checkStrip(now);
+                if (!tvOff) {
+                    tick(now, false);
+                    checkStrip(now);
+                }
             } catch (Exception ignored) {
             }
             if (handler != null && running) handler.postDelayed(this, tickMs());
+        }
+    };
+
+    /** Screen off (standby) or shutdown: lights off. Screen on: lights back on. */
+    private final BroadcastReceiver powerReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent i) {
+            String a = i.getAction();
+            Handler h = handler;
+            if (h == null || a == null) return;
+            if (Intent.ACTION_SCREEN_ON.equals(a)) {
+                h.post(CaptureService.this::lightsOn);
+                return;
+            }
+            Settings s = settings;
+            if (s != null && !s.followTv) return; // lights stay on as room lighting
+            holdAwake(4000); // the TV may suspend right away; finish the fade first
+            final PendingResult pending = goAsync();
+            boolean posted = h.post(() -> {
+                try {
+                    lightsOff();
+                } finally {
+                    pending.finish();
+                }
+            });
+            if (!posted) pending.finish();
         }
     };
 
@@ -158,6 +198,12 @@ public class CaptureService extends Service {
         captureThread = new HandlerThread("tvglow-capture", Process.THREAD_PRIORITY_DEFAULT);
         captureThread.start();
         handler = new Handler(captureThread.getLooper());
+
+        IntentFilter power = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        power.addAction(Intent.ACTION_SCREEN_ON);
+        power.addAction(Intent.ACTION_SHUTDOWN);
+        registerReceiver(powerReceiver, power);
+        powerWatch = true;
 
         projection.registerCallback(new MediaProjection.Callback() {
             @Override
@@ -231,6 +277,7 @@ public class CaptureService extends Service {
                 }
                 try {
                     wled = new WledClient(ip);
+                    fadeInAt = SystemClock.uptimeMillis();
                     activeMode = mode;
                     status = "Syncing to WLED at " + ip;
                     toast("TV Glow is syncing");
@@ -263,6 +310,7 @@ public class CaptureService extends Service {
                     monitor = null; // health checks are a bonus; sync still works
                 }
                 connectedAt = SystemClock.uptimeMillis();
+                fadeInAt = connectedAt;
                 client = c;
                 status = "Syncing to strip at " + ip;
                 toast("TV Glow is syncing");
@@ -415,9 +463,16 @@ public class CaptureService extends Service {
                     : String.format(Locale.US, "%.0f updates/s", sendCount / secs);
             String lag = lagN > 0 ? String.format(Locale.US, " · capture lag %.0f ms", lagSum / lagN) : "";
             String health = monitor == null ? "" : stripNote.isEmpty() ? " · strip answering ✓" : stripNote;
-            status = String.format(Locale.US, "%s · screen %.0f fps (30s avg %.1f) · reading %.0f/s%s · strip %s%s",
+            TvHealth.Memory m = TvHealth.memory(this);
+            String mem = "";
+            if (m != null) {
+                memLowestMb = Math.min(memLowestMb, m.freeMb);
+                mem = String.format(Locale.US, " · TV memory %d MB free (lowest %d)%s",
+                        m.freeMb, memLowestMb, m.low ? ", running low" : "");
+            }
+            status = String.format(Locale.US, "%s · screen %.0f fps (30s avg %.1f) · reading %.0f/s%s · strip %s%s%s",
                     Settings.MODE_NAMES[Math.max(0, Math.min(3, s.mode))], frameCount / secs, avg,
-                    readCount / secs, lag, strip, health);
+                    readCount / secs, lag, strip, health, mem);
         }
         frameCount = 0;
         readCount = 0;
@@ -533,6 +588,113 @@ public class CaptureService extends Service {
         }
     }
 
+    /**
+     * The TV is going to standby or shutting down: fade the strip out and switch it off.
+     * Runs on the capture thread; frames and timer ticks send nothing from here on.
+     */
+    private void lightsOff() {
+        if (tvOff) return;
+        tvOff = true;
+        if (held != null) {
+            held.close();
+            held = null;
+        }
+        Settings s = settings;
+        GoveeClient gc = client;
+        WledClient wc = wled;
+        int[] last = lastSentColors;
+        try {
+            boolean frames = s != null && (s.mode == Settings.MODE_REALTIME || s.mode == Settings.MODE_WLED);
+            if (frames && last != null) {
+                for (int step = 5; step >= 0; step--) {
+                    int[] c = scale(last, step / 6f);
+                    if (s.mode == Settings.MODE_WLED) {
+                        if (wc != null) wc.send(WledProtocol.upsample(c, Math.max(1, s.ledCount), s.sideCounts()[3] > 0));
+                    } else if (gc != null) {
+                        gc.colors(c, s.gradient);
+                    }
+                    Thread.sleep(60);
+                }
+            }
+            if (gc != null) {
+                gc.turnOff();
+                Thread.sleep(120);
+                gc.turnOff(); // UDP can drop a packet; the second one makes sure
+            }
+            if (wc != null && s != null) wc.blackout(s.ledCount);
+        } catch (Exception ignored) {
+            // best effort: the TV is going to sleep either way
+        }
+        lastSentColors = null;
+        status = "TV is off, so the lights are off. They come back on with the TV.";
+    }
+
+    /** The TV is back on: switch the strip on and fade the picture back in. */
+    private void lightsOn() {
+        if (!tvOff) return;
+        long now = SystemClock.uptimeMillis();
+        Settings s = settings;
+        GoveeClient gc = client;
+        try {
+            if (gc != null && s != null && s.mode != Settings.MODE_WLED) {
+                gc.turnOn();
+                if (s.mode == Settings.MODE_REALTIME) gc.razer(true);
+                lastKeepAlive = now;
+            }
+        } catch (Exception ignored) {
+            // the next frames and keep-alives retry
+        }
+        scheduler = null;
+        lastSentColors = null;
+        connectedAt = now; // fresh grace period: the strip wasn't asked anything while off
+        fadeInAt = now;
+        tvOff = false;
+        status = "TV is on: lights coming back...";
+    }
+
+    /** Keeps the processor awake for a moment: the TV may suspend right after the screen goes off. */
+    private void holdAwake(long ms) {
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tvglow:lights-off");
+            wl.setReferenceCounted(false);
+            wl.acquire(ms);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private boolean screenOn() {
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            return pm == null || pm.isInteractive();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** Brightness right after the strip switches on: a smooth rise from 0 to 1. */
+    private float fadeLevel(long now) {
+        long since = now - fadeInAt;
+        if (fadeInAt == 0 || since >= FADE_IN_MS) return 1f;
+        float x = Math.max(0f, since / (float) FADE_IN_MS);
+        return x * x * (3f - 2f * x);
+    }
+
+    /** Colors dimmed to a fraction of their brightness. */
+    static int[] scale(int[] c, float f) {
+        int[] out = new int[c.length];
+        for (int i = 0; i < c.length; i++) out[i] = scale(c[i], f);
+        return out;
+    }
+
+    static int scale(int c, float f) {
+        if (f >= 1f) return c;
+        float k = Math.max(0f, f);
+        return Math.round(((c >> 16) & 0xFF) * k) << 16
+                | Math.round(((c >> 8) & 0xFF) * k) << 8
+                | Math.round((c & 0xFF) * k);
+    }
+
     private void toast(String msg) {
         main.post(() -> {
             try {
@@ -564,7 +726,7 @@ public class CaptureService extends Service {
     private void tick(long now, boolean fresh) {
         int[] target = latestTarget;
         Settings s = settings;
-        if (target == null || s == null) return;
+        if (target == null || s == null || tvOff) return;
         int mode = s.mode;
         GoveeClient gc = client;
         WledClient wc = wled;
@@ -603,13 +765,15 @@ public class CaptureService extends Service {
                     | Math.round(smoothed[i * 3 + 2]);
         }
         int[] ordered = correction.apply(EdgeSampler.order(out, s.reverse, s.shift));
+        float level = fadeLevel(now);
+        if (level < 1f) ordered = scale(ordered, level);
 
         try {
             if (mode == Settings.MODE_SEGMENTS) {
                 sendSegments(gc, ordered, s, now, fresh);
             } else if (mode == Settings.MODE_SINGLE) {
                 if (now - lastSend >= 90) {
-                    gc.color(correction.apply(EdgeSampler.average(out)));
+                    gc.color(scale(correction.apply(EdgeSampler.average(out)), level));
                     markSent(now, 1);
                 }
             } else {
@@ -710,6 +874,18 @@ public class CaptureService extends Service {
         } else {
             releaseCapture();
         }
+        if (powerWatch) {
+            try {
+                unregisterReceiver(powerReceiver);
+            } catch (IllegalArgumentException ignored) {
+            }
+            powerWatch = false;
+        }
+        // With the TV off (or going off), leave the strip dark instead of handing it back to its
+        // old scene, which would light the room up with the TV off.
+        Settings st = settings;
+        final boolean leaveDark = tvOff || (!screenOn() && (st == null || st.followTv));
+        final int leds = st == null ? 1 : Math.max(1, st.ledCount);
         final GoveeClient c = client;
         final WledClient w = wled;
         final StripMonitor m = monitor;
@@ -720,7 +896,7 @@ public class CaptureService extends Service {
             if (m != null) m.close();
             if (w != null) {
                 try {
-                    w.release();
+                    if (leaveDark) w.blackout(leds); else w.release();
                 } catch (Exception ignored) {
                 }
                 w.close();
@@ -728,6 +904,7 @@ public class CaptureService extends Service {
             if (c != null) {
                 try {
                     c.razer(false);
+                    if (leaveDark) c.turnOff();
                 } catch (Exception ignored) {
                 }
                 c.close();

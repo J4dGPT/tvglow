@@ -103,6 +103,13 @@ TV Glow streams WLED's realtime UDP protocol (DRGB/DNRGB, port 21324). WLED goes
 - **Strip health:** while syncing, the app asks the strip for its status every 3 seconds and listens for the answer. If the strip goes quiet, it scans the network and reconnects if the strip moved to a new address. The status line shows "strip answering" or "strip not answering".
 - **On-screen notices** appear over whatever you're watching: when sync starts, when the strip stops answering, and when the picture can't be captured (protected apps, HDMI inputs).
 
+## Smart power and TV health
+
+- **Follow TV (on by default):** when the TV goes to standby or shuts down, the lights fade out and switch off. When the TV wakes up, they switch back on and fade back into the picture, with no need to open the app. Turn **Follow TV** off to keep the lights on as room lighting while the TV is off.
+- **Fade-in:** the lights fade up over 0.7 seconds when sync starts or the TV wakes, instead of snapping on.
+- **TV memory** appears in the status line while syncing (free now and lowest seen), so you can tell whether the TV is running short.
+- **Free up memory** closes apps idling in the background and shows how much memory it freed. Android doesn't let one app force-stop another; this is the version it allows. Idle apps start fresh next time you open them, and anything on screen or playing is left alone. It helps when the TV is short on memory; it can't speed up the screen capture itself.
+
 ## Setting it up for someone else
 
 **Install page:** `docs/index.html` is served by GitHub Pages at **j4dgpt.github.io/tvglow** (enable once: repo Settings → Pages → Deploy from a branch → `main` / `docs`). Typing that address into the Downloader app opens the page and starts the download automatically.

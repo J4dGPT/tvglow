@@ -36,6 +36,10 @@ final class GoveeClient implements Closeable {
         send(GoveeProtocol.turnJson(true));
     }
 
+    void turnOff() throws IOException {
+        send(GoveeProtocol.turnJson(false));
+    }
+
     void color(int rgb) throws IOException {
         send(GoveeProtocol.colorJson(rgb));
     }

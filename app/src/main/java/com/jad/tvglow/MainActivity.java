@@ -34,6 +34,7 @@ public class MainActivity extends Activity {
     private boolean autoResumeTried;
 
     private final Button[] sideBtns = new Button[4];
+    private Button followBtn;
     private Button ledBtn, captureBtn, detailBtn, styleBtn, modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
     private EditText ipField;
 
@@ -129,6 +130,15 @@ public class MainActivity extends Activity {
             changed();
             local("Live preset on: Instant motion, full detail, Fast, Medium capture. Restart sync to apply.");
         }, false);
+        r = row(sync);
+        followBtn = button(r, "", v -> {
+            settings.followTv = !settings.followTv;
+            changed();
+            local(settings.followTv
+                    ? "Lights now fade out when the TV turns off and come back when it turns on."
+                    : "Lights now stay on when the TV turns off.");
+        }, false);
+        button(r, "Free up memory", v -> freeUpMemory(), false);
 
         // Connection
         LinearLayout conn = card(left);
@@ -292,6 +302,27 @@ public class MainActivity extends Activity {
                 .putExtra(CaptureService.EXTRA_DATA, data);
         startForegroundService(svc);
         localStatus = null;
+    }
+
+    /** Closes apps idling in the background and shows how much memory that freed. */
+    private void freeUpMemory() {
+        local("Closing apps idling in the background...");
+        final android.content.Context app = getApplicationContext();
+        new Thread(() -> {
+            TvHealth.Memory before = TvHealth.memory(app);
+            int checked = TvHealth.closeBackgroundApps(app);
+            try {
+                Thread.sleep(2000); // give Android a moment to reclaim the memory
+            } catch (InterruptedException ignored) {
+            }
+            TvHealth.Memory after = TvHealth.memory(app);
+            String msg = before == null || after == null
+                    ? "Closed whatever was idling in the background (" + checked + " apps checked)."
+                    : String.format(java.util.Locale.US,
+                    "Closed whatever was idling in the background (%d apps checked). Free memory: %d MB before, %d MB now, out of %d MB.",
+                    checked, before.freeMb, after.freeMb, after.totalMb);
+            ui.post(() -> local(msg));
+        }).start();
     }
 
     private void stopAll() {
@@ -488,6 +519,7 @@ public class MainActivity extends Activity {
         smoothBtn.setText("Motion\n" + Settings.SMOOTH_NAMES[settings.smoothing]);
         fpsBtn.setText("Speed\n" + Settings.SPEED_NAMES[settings.speedIdx()]);
         gradBtn.setText("Blend\n" + (settings.gradient ? "On" : "Off"));
+        followBtn.setText("Follow TV\n" + (settings.followTv ? "On" : "Off"));
     }
 
     private void local(String s) {
