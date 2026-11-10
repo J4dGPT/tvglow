@@ -80,6 +80,7 @@ public class CaptureService extends Service {
     private int[] pixels, rowBuf;
     private final StableRect stableRect = new StableRect();
     private int[] latestTarget;
+    private int[] lastVisibleTarget;
     private float[] smoothed;
     private SegmentScheduler scheduler;
     private LedCorrection correction = LedCorrection.NONE;
@@ -509,10 +510,14 @@ public class CaptureService extends Service {
         target = EdgeSampler.blendNeighbors(target, sideCounts[3] > 0, blend);
         float bright = s.brightness / 100f;
         for (int i = 0; i < n; i++) target[i] = EdgeSampler.style(target[i], s.style, bright);
-        if (dark && now - darkSince > 3000 && latestTarget != null
-                && latestTarget.length == target.length) {
-            return scale(latestTarget, 0.97f);
+        if (dark && now - darkSince > 3000 && lastVisibleTarget != null
+                && lastVisibleTarget.length == target.length) {
+            // Use the last real frame, not the previously dimmed target. This avoids
+            // frame-rate-dependent exponential decay and never requires extra capture.
+            float fade = Math.max(0.18f, 1f - (now - darkSince - 3000) / 2500f);
+            return scale(lastVisibleTarget, fade);
         }
+        if (!dark) lastVisibleTarget = target.clone();
         return target;
     }
 
