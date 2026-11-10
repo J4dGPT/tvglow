@@ -494,15 +494,13 @@ public class CaptureService extends Service {
         if (dark) {
             if (darkSince == 0) darkSince = now;
             if (now - darkSince > 3000) {
-                status = "Screen reads black: protected apps (Netflix etc.) and HDMI inputs (PS5) can't be captured.";
-                if (!darkWarned) {
-                    darkWarned = true;
-                    toast("TV Glow can't see this picture. Protected apps and HDMI inputs show up black.");
-                }
+                status = "Picture dark or unavailable · ambient fallback";
+                darkWarned = true;
             }
         } else if (darkSince != 0) {
             darkSince = 0;
             darkWarned = false;
+            status = "Picture detected · syncing";
         }
 
         int[] rect = stableRect.update(EdgeSampler.contentRect(pixels, W, H), W, H, dark, now);
@@ -511,6 +509,10 @@ public class CaptureService extends Service {
         target = EdgeSampler.blendNeighbors(target, sideCounts[3] > 0, blend);
         float bright = s.brightness / 100f;
         for (int i = 0; i < n; i++) target[i] = EdgeSampler.style(target[i], s.style, bright);
+        if (dark && now - darkSince > 3000 && latestTarget != null
+                && latestTarget.length == target.length) {
+            return scale(latestTarget, 0.97f);
+        }
         return target;
     }
 
