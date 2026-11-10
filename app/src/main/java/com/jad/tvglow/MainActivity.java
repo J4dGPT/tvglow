@@ -12,6 +12,7 @@ import android.media.projection.MediaProjectionManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -29,12 +30,14 @@ public class MainActivity extends Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Settings settings;
-    private TextView statusView;
+    private TextView statusView, detailsView;
+    private GlowPreview glow;
     private String localStatus = null;
+    private long localUntil; // in-app messages clear themselves after a few seconds
     private boolean autoResumeTried;
 
     private final Button[] sideBtns = new Button[4];
-    private Button followBtn;
+    private Button followBtn, nightBtn;
     private Button ledBtn, captureBtn, detailBtn, styleBtn, modeBtn, sidesBtn, reverseBtn, shiftBtn, segBtn, brightBtn, fpsBtn, smoothBtn, gradBtn;
     private EditText ipField;
 
@@ -49,11 +52,24 @@ public class MainActivity extends Activity {
         @Override
         public void run() {
             boolean on = CaptureService.running;
+            if (localStatus != null && SystemClock.uptimeMillis() > localUntil) localStatus = null;
             String s = localStatus != null ? localStatus : CaptureService.status;
             statusTitle.setText(on ? "Syncing" : "Not syncing");
             ((GradientDrawable) dotView.getBackground()).setColor(on ? LIVE : IDLE);
             statusView.setText(s);
+            String d = on ? CaptureService.details : "";
+            detailsView.setText(d);
+            detailsView.setVisibility(d.isEmpty() ? View.GONE : View.VISIBLE);
             ui.postDelayed(this, 500);
+        }
+    };
+
+    /** Live preview of the wall, about 12 times a second while this screen is open. */
+    private final Runnable previewTick = new Runnable() {
+        @Override
+        public void run() {
+            glow.show(CaptureService.running ? CaptureService.preview : null, CaptureService.previewCounts);
+            ui.postDelayed(this, 80);
         }
     };
 
@@ -93,8 +109,13 @@ public class MainActivity extends Activity {
         statusRow.addView(dotView, new LinearLayout.LayoutParams(dp(12), dp(12)));
         spacer(statusRow, dp(10));
         statusTitle = text(statusRow, "Not syncing", 20, TEXT, true);
-        statusView = text(statusCard, "", 14, MUTED, false);
-        statusView.setPadding(0, dp(8), 0, 0);
+        glow = new GlowPreview(this);
+        statusCard.addView(glow, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(130)));
+        statusView = text(statusCard, "", 15, TEXT, false);
+        statusView.setPadding(0, dp(4), 0, 0);
+        detailsView = text(statusCard, "", 12, MUTED, false);
+        detailsView.setPadding(0, dp(6), 0, 0);
+        detailsView.setVisibility(View.GONE);
 
         // Sync
         LinearLayout sync = card(left);
@@ -208,6 +229,13 @@ public class MainActivity extends Activity {
         styleBtn = button(r, "", v -> { settings.style = (settings.style + 1) % 3; changed(); }, false);
         brightBtn = button(r, "", v -> { settings.brightness = Settings.next(Settings.BRIGHTNESS_OPTIONS, settings.brightness); changed(); }, false);
         smoothBtn = button(r, "", v -> { settings.smoothing = (settings.smoothing + 1) % 4; changed(); }, false);
+        nightBtn = button(r, "", v -> {
+            settings.nightDim = !settings.nightDim;
+            changed();
+            local(settings.nightDim
+                    ? "Night dim on: the lights ease down to 60% between 10 and 11 pm, and back up between 6 and 7 am."
+                    : "Night dim off: full brightness all night.");
+        }, false);
         r = row(look);
         fpsBtn = button(r, "", v -> { settings.speed = (settings.speedIdx() + 1) % Settings.SPEED_NAMES.length; changed(); }, false);
         detailBtn = button(r, "", v -> { settings.detail = (settings.detail + 1) % 3; changed(); }, false);
@@ -267,12 +295,14 @@ public class MainActivity extends Activity {
             requestCapture();
         }
         ui.post(poll);
+        ui.post(previewTick);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         ui.removeCallbacks(poll);
+        ui.removeCallbacks(previewTick);
     }
 
     private void requestCapture() {
@@ -341,7 +371,7 @@ public class MainActivity extends Activity {
                 } catch (Exception ignored) {
                 }
             }).start();
-            local("Stopped");
+            local("Sync is off.");
         }
     }
 
@@ -520,10 +550,12 @@ public class MainActivity extends Activity {
         fpsBtn.setText("Speed\n" + Settings.SPEED_NAMES[settings.speedIdx()]);
         gradBtn.setText("Blend\n" + (settings.gradient ? "On" : "Off"));
         followBtn.setText("Follow TV\n" + (settings.followTv ? "On" : "Off"));
+        nightBtn.setText("Night dim\n" + (settings.nightDim ? "On" : "Off"));
     }
 
     private void local(String s) {
         localStatus = s;
+        localUntil = SystemClock.uptimeMillis() + 7000;
         statusView.setText(s);
     }
 

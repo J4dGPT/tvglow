@@ -21,11 +21,9 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
-import android.os.Looper;
 import android.os.PowerManager;
 import android.os.Process;
 import android.os.SystemClock;
-import android.widget.Toast;
 
 import java.util.List;
 import java.util.Locale;
@@ -70,9 +68,8 @@ public class CaptureService extends Service {
     private volatile WledClient wled;
     private volatile int activeMode = -1;
     private volatile StripMonitor monitor;
-    private final Handler main = new Handler(Looper.getMainLooper());
     private long connectedAt, lastProbe, lastScan, scanCheckAt;
-    private boolean stripWarned, darkWarned;
+    private boolean stripWarned;
     private volatile String stripNote = "";
     private WifiManager.WifiLock perfLock;
 
@@ -101,6 +98,23 @@ public class CaptureService extends Service {
 
     // TV memory, for the status line
     private long memLowestMb = Long.MAX_VALUE;
+
+    // Rest glow: when the picture stays black (protected apps like Netflix, HDMI inputs, a black
+    // screen), ease into a soft light instead of going dark, and come straight back after.
+    private static final long REST_AFTER_MS = 2500;
+    private static final float REST_IN_MS = 1500f, REST_OUT_MS = 300f;
+    private float restLevel;
+    private boolean restShown;
+
+    // Night dimming (checked twice a minute)
+    private long nightCheckedAt;
+    private float nightCached = 1f;
+
+    /** What the strip shows right now, in screen order, for the live preview in the app. */
+    static volatile int[] preview;
+    static volatile int[] previewCounts;
+    /** The numbers behind the status line, shown small under it. */
+    static volatile String details = "";
 
     // Stats for the status line
     private long statsSince;
@@ -279,8 +293,8 @@ public class CaptureService extends Service {
                     wled = new WledClient(ip);
                     fadeInAt = SystemClock.uptimeMillis();
                     activeMode = mode;
-                    status = "Syncing to WLED at " + ip;
-                    toast("TV Glow is syncing");
+                    status = "Lights are following the picture.";
+                    details = "WLED at " + ip;
                 } catch (Exception e) {
                     status = "Could not reach WLED at " + ip + ": " + e.getMessage();
                     stopSelf();
@@ -312,8 +326,8 @@ public class CaptureService extends Service {
                 connectedAt = SystemClock.uptimeMillis();
                 fadeInAt = connectedAt;
                 client = c;
-                status = "Syncing to strip at " + ip;
-                toast("TV Glow is syncing");
+                status = "Lights are following the picture.";
+                details = "Strip at " + ip;
             } catch (Exception e) {
                 status = "Could not reach strip at " + ip + ": " + e.getMessage();
                 stopSelf();
@@ -456,7 +470,7 @@ public class CaptureService extends Service {
         int cnt = Math.min(fpsIdx, fpsHistory.length);
         for (int i = 0; i < cnt; i++) avg += fpsHistory[i];
         avg /= Math.max(1, cnt);
-        if (darkSince == 0 && connected()) {
+        if (connected() && !tvOff) {
             Settings s = settings;
             String strip = s.mode == Settings.MODE_SEGMENTS
                     ? String.format(Locale.US, "%.0f cmds/s", cmdCount / secs)
@@ -470,9 +484,10 @@ public class CaptureService extends Service {
                 mem = String.format(Locale.US, " · TV memory %d MB free (lowest %d)%s",
                         m.freeMb, memLowestMb, m.low ? ", running low" : "");
             }
-            status = String.format(Locale.US, "%s · screen %.0f fps (30s avg %.1f) · reading %.0f/s%s · strip %s%s%s",
+            details = String.format(Locale.US, "%s · screen %.0f fps (30s avg %.1f) · reading %.0f/s%s · strip %s%s%s",
                     Settings.MODE_NAMES[Math.max(0, Math.min(3, s.mode))], frameCount / secs, avg,
                     readCount / secs, lag, strip, health, mem);
+            if (!restShown) status = friendlyStatus(now);
         }
         frameCount = 0;
         readCount = 0;
@@ -490,20 +505,10 @@ public class CaptureService extends Service {
         int n = sideCounts[0] + sideCounts[1] + sideCounts[2] + sideCounts[3];
         if (n == 0) return null;
 
+        // A black picture for a while switches the lights to the rest glow (see tick)
         boolean dark = EdgeSampler.allDark(pixels);
-        if (dark) {
-            if (darkSince == 0) darkSince = now;
-            if (now - darkSince > 3000) {
-                status = "Screen reads black: protected apps (Netflix etc.) and HDMI inputs (PS5) can't be captured.";
-                if (!darkWarned) {
-                    darkWarned = true;
-                    toast("TV Glow can't see this picture. Protected apps and HDMI inputs show up black.");
-                }
-            }
-        } else if (darkSince != 0) {
-            darkSince = 0;
-            darkWarned = false;
-        }
+        if (!dark) darkSince = 0;
+        else if (darkSince == 0) darkSince = now;
 
         int[] rect = stableRect.update(EdgeSampler.contentRect(pixels, W, H), W, H, dark, now);
         int[] target = EdgeSampler.sampleSides(pixels, W, H, sideCounts, 0.14f, rect);
@@ -554,7 +559,7 @@ public class CaptureService extends Service {
             stripNote = " · strip not answering";
             if (!stripWarned) {
                 stripWarned = true;
-                toast("TV Glow: the strip isn't answering. Check it's powered and LAN Control is on in the Govee app.");
+                if (!restShown) status = friendlyStatus(now);
             }
         }
     }
@@ -582,7 +587,7 @@ public class CaptureService extends Service {
             if (sku != null && !"?".equals(sku)) saved.sku = sku;
             saved.save(this);
             stripNote = "";
-            toast("TV Glow: the strip moved to a new address. Reconnected.");
+            status = "Your strip moved to a new address, so TV Glow reconnected to it.";
         } catch (Exception e) {
             stripNote = " · reconnect failed";
         }
@@ -626,6 +631,7 @@ public class CaptureService extends Service {
             // best effort: the TV is going to sleep either way
         }
         lastSentColors = null;
+        preview = null;
         status = "TV is off, so the lights are off. They come back on with the TV.";
     }
 
@@ -650,6 +656,53 @@ public class CaptureService extends Service {
         fadeInAt = now;
         tvOff = false;
         status = "TV is on: lights coming back...";
+    }
+
+    /** The everyday status line: what the lights are doing, in plain words. */
+    private String friendlyStatus(long now) {
+        if (!stripNote.isEmpty()) {
+            return "Your strip isn't answering. TV Glow keeps looking for it and reconnects by itself.";
+        }
+        Settings s = settings;
+        if (s != null && s.nightDim && nightLevel(now) < 1f) {
+            return "Lights are following the picture, dimmed for the night.";
+        }
+        return "Lights are following the picture.";
+    }
+
+    /** Soft light while the picture can't be seen: an ember for Cozy, warm white otherwise. */
+    static int restColor(Settings s) {
+        boolean cozy = s.style == EdgeSampler.STYLE_COZY;
+        return scale(cozy ? 0xFF7A33 : 0xFFC48A, (cozy ? 0.20f : 0.16f) * s.brightness / 100f);
+    }
+
+    /** Night dimming level for now: 1 by day, 0.6 overnight (see nightCurve). */
+    private float nightLevel(long now) {
+        if (nightCheckedAt == 0 || now - nightCheckedAt > 30000) {
+            nightCheckedAt = now;
+            java.util.Calendar c = java.util.Calendar.getInstance();
+            nightCached = nightCurve(c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE));
+        }
+        return nightCached;
+    }
+
+    /** Eases from full to 60% between 10 and 11 pm, holds overnight, eases back up 6 to 7 am. */
+    static float nightCurve(int minuteOfDay) {
+        int m = Math.floorMod(minuteOfDay, 24 * 60);
+        if (m >= 22 * 60 && m < 23 * 60) return 1f - 0.4f * (m - 22 * 60) / 60f;
+        if (m >= 23 * 60 || m < 6 * 60) return 0.6f;
+        if (m < 7 * 60) return 0.6f + 0.4f * (m - 6 * 60) / 60f;
+        return 1f;
+    }
+
+    /** Blend from a to b by t (0 to 1), per channel. */
+    static int mix(int a, int b, float t) {
+        if (t <= 0f) return a;
+        if (t >= 1f) return b;
+        int r = Math.round(((a >> 16) & 0xFF) + (((b >> 16) & 0xFF) - ((a >> 16) & 0xFF)) * t);
+        int g = Math.round(((a >> 8) & 0xFF) + (((b >> 8) & 0xFF) - ((a >> 8) & 0xFF)) * t);
+        int bl = Math.round((a & 0xFF) + ((b & 0xFF) - (a & 0xFF)) * t);
+        return r << 16 | g << 8 | bl;
     }
 
     /** Keeps the processor awake for a moment: the TV may suspend right after the screen goes off. */
@@ -693,15 +746,6 @@ public class CaptureService extends Service {
         return Math.round(((c >> 16) & 0xFF) * k) << 16
                 | Math.round(((c >> 8) & 0xFF) * k) << 8
                 | Math.round((c & 0xFF) * k);
-    }
-
-    private void toast(String msg) {
-        main.post(() -> {
-            try {
-                Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_LONG).show();
-            } catch (Throwable ignored) {
-            }
-        });
     }
 
     private long tickMs() {
@@ -764,6 +808,27 @@ public class CaptureService extends Service {
                     | Math.round(smoothed[i * 3 + 1]) << 8
                     | Math.round(smoothed[i * 3 + 2]);
         }
+
+        // Rest glow: ease in after the picture has been black for a moment, snap back after.
+        boolean resting = darkSince != 0 && now - darkSince > REST_AFTER_MS;
+        restLevel = resting ? Math.min(1f, restLevel + dt / REST_IN_MS) : Math.max(0f, restLevel - dt / REST_OUT_MS);
+        if (restLevel > 0f) {
+            int glow = restColor(s);
+            for (int i = 0; i < n; i++) out[i] = mix(out[i], glow, restLevel);
+        }
+        if (resting != restShown) {
+            restShown = resting;
+            status = resting
+                    ? "Resting: the picture is dark or hidden from capture (like Netflix or HDMI inputs), so the lights glow softly until it's back."
+                    : friendlyStatus(now);
+        }
+        if (s.nightDim) {
+            float night = nightLevel(now);
+            if (night < 1f) for (int i = 0; i < n; i++) out[i] = scale(out[i], night);
+        }
+        preview = out;
+        previewCounts = s.sideCounts();
+
         int[] ordered = correction.apply(EdgeSampler.order(out, s.reverse, s.shift));
         float level = fadeLevel(now);
         if (level < 1f) ordered = scale(ordered, level);
@@ -861,8 +926,10 @@ public class CaptureService extends Service {
         if (!status.startsWith("No strip") && !status.startsWith("Could not")
                 && !status.startsWith("Screen capture") && !status.startsWith("Missing")
                 && !status.startsWith("WLED mode needs")) {
-            status = "Stopped";
+            status = "Sync is off.";
         }
+        preview = null;
+        details = "";
         releaseWifiLocks();
         // Frames are only ever touched on the capture thread, so tear capture down there too:
         // a frame being read can't race with the reader closing under it.

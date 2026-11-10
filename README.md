@@ -103,6 +103,13 @@ TV Glow streams WLED's realtime UDP protocol (DRGB/DNRGB, port 21324). WLED goes
 - **Strip health:** while syncing, the app asks the strip for its status every 3 seconds and listens for the answer. If the strip goes quiet, it scans the network and reconnects if the strip moved to a new address. The status line shows "strip answering" or "strip not answering".
 - **On-screen notices** appear over whatever you're watching: when sync starts, when the strip stops answering, and when the picture can't be captured (protected apps, HDMI inputs).
 
+## Smart touches
+
+- **No popups.** TV Glow never interrupts what you're watching. Everything it has to say shows in the status card in the app, in plain words, with the technical numbers in small print underneath. Messages from buttons clear themselves after a few seconds.
+- **Live preview.** The status card shows a small TV with the glow around it: the strip's colors right now, zone by zone, about 12 times a second.
+- **Rest glow.** When the picture stays black for a few seconds (protected apps like Netflix, HDMI inputs, or just a black screen), the lights ease into a soft warm glow instead of going dark or complaining, then snap back to the picture the moment it's visible again. Cozy rests on an ember; the other styles on a warm white bias light.
+- **Night dim (on by default).** The lights ease down to 60% between 10 and 11 pm, stay there overnight, and ease back up between 6 and 7 am.
+
 ## Smart power and TV health
 
 - **Follow TV (on by default):** when the TV goes to standby or shuts down, the lights fade out and switch off. When the TV wakes up, they switch back on and fade back into the picture, with no need to open the app. Turn **Follow TV** off to keep the lights on as room lighting while the TV is off.
