@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0b12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TV Glow">
+<link rel="apple-touch-icon" href="/icon.png">
+<link rel="icon" href="/icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>TV Glow</title>
+<style>
+  :root {
+    --bg: #0b0b12; --card: #14141e; --raise: #1d1d2b; --line: #25253a;
+    --text: #ececf4; --muted: #8c8ca3; --a: #ff4fd8; --b: #7c4dff; --live: #3be38b; --pause: #ffb547;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    padding: calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 28px);
+    max-width: 520px; margin: 0 auto;
+    -webkit-user-select: none; user-select: none;
+  }
+  header { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 14px; }
+  h1 {
+    margin: 0; font-size: 30px; letter-spacing: -0.02em;
+    background: linear-gradient(90deg, var(--a), var(--b)); -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .pill { display: flex; align-items: center; gap: 7px; font-size: 14px; color: var(--muted); background: var(--card);
+    border: 1px solid var(--line); padding: 6px 12px; border-radius: 999px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #5a5a70; transition: background .3s, box-shadow .3s; }
+  .dot.live { background: var(--live); box-shadow: 0 0 10px var(--live); }
+  .dot.pause { background: var(--pause); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 16px; margin-bottom: 14px; }
+  .stage { position: relative; }
+  canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; }
+  #status { color: var(--muted); font-size: 15px; margin: 8px 2px 2px; min-height: 2.8em; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .big {
+    appearance: none; border: 1px solid var(--line); border-radius: 18px; padding: 16px 10px 14px;
+    background: var(--raise); color: var(--text); font: inherit; font-size: 18px; font-weight: 650;
+    display: flex; flex-direction: column; align-items: center; gap: 3px; transition: transform .12s, background .25s, opacity .25s;
+  }
+  .big:active { transform: scale(0.97); }
+  .big small { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .big.on { background: linear-gradient(135deg, var(--a), var(--b)); border-color: transparent; color: #fff;
+    box-shadow: 0 8px 26px rgba(160, 70, 255, 0.35); }
+  .big.on small { color: rgba(255, 255, 255, 0.85); }
+  .big:disabled { opacity: 0.4; }
+  .hint { color: var(--muted); font-size: 13px; margin: 10px 2px 0; }
+  .hint:empty { display: none; }
+  .label { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--muted); margin: 2px 2px 8px; }
+  .label b { color: var(--text); letter-spacing: 0; font-size: 14px; }
+  .seg { display: flex; gap: 4px; padding: 4px; margin-bottom: 18px; background: #0e0e17; border: 1px solid var(--line); border-radius: 14px; }
+  .seg:last-child { margin-bottom: 4px; }
+  .seg button { flex: 1; appearance: none; border: 0; border-radius: 10px; padding: 10px 2px; background: transparent;
+    color: var(--muted); font: inherit; font-size: 15px; transition: background .2s, color .2s; }
+  .seg button.sel { background: #2b2b42; color: var(--text); font-weight: 600; }
+  input[type=range] { width: 100%; margin: 0 0 18px; accent-color: #b04dff; height: 30px; }
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 2px; border-top: 1px solid var(--line); }
+  .switch:first-child { border-top: 0; padding-top: 2px; }
+  .switch:last-child { padding-bottom: 2px; }
+  .switch small { display: block; color: var(--muted); font-size: 13px; }
+  .tog { flex: none; position: relative; width: 52px; height: 32px; border: 0; border-radius: 16px; background: #2b2b42; transition: background .2s; }
+  .tog::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%;
+    background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4); transition: transform .2s; }
+  .tog.on { background: linear-gradient(90deg, var(--a), var(--b)); }
+  .tog.on::after { transform: translateX(20px); }
+  footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 18px; }
+  body.offline .needs-tv { opacity: 0.4; pointer-events: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TV Glow</h1>
+  <div class="pill"><span class="dot" id="dot"></span><span id="pill">Connecting</span></div>
+</header>
+
+<section class="card stage">
+  <canvas id="wall" width="720" height="450"></canvas>
+  <div id="status">Connecting to your TV...</div>
+</section>
+
+<section class="card needs-tv">
+  <div class="row">
+    <button class="big" id="sync"><span>Sync</span><small id="syncSub">&nbsp;</small></button>
+    <button class="big" id="lights"><span>Lights</span><small id="lightsSub">&nbsp;</small></button>
+  </div>
+  <p class="hint" id="hint"></p>
+</section>
+
+<section class="card needs-tv">
+  <div class="label">Style</div>
+  <div class="seg" data-key="style"><button data-v="0">Cozy</button><button data-v="1">Vivid</button><button data-v="2">Accurate</button></div>
+  <div class="label">Brightness <b id="bval"></b></div>
+  <input type="range" id="bright" min="10" max="100" step="5" value="100">
+  <div class="label">Motion</div>
+  <div class="seg" data-key="smoothing"><button data-v="2">Smooth</button><button data-v="1">Balanced</button><button data-v="0">Fast</button><button data-v="3">Instant</button></div>
+  <div class="label">Speed</div>
+  <div class="seg" data-key="speed"><button data-v="0">Safe</button><button data-v="1">Fast</button><button data-v="2">Turbo</button><button data-v="3">Max</button></div>
+</section>
+
+<section class="card needs-tv">
+  <div class="switch"><div>Night dim<small>Eases down to 60% from 10 pm to 7 am</small></div><button class="tog" data-key="nightDim" aria-label="Night dim"></button></div>
+  <div class="switch"><div>Follow TV<small>Lights go off and on with the TV</small></div><button class="tog" data-key="followTv" aria-label="Follow TV"></button></div>
+</section>
+
+<footer>Tip: tap Share, then Add to Home Screen, to open this like an app.</footer>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let state = null, dragging = false, timer = 0, fails = 0;
+  let shown = [], target = [], counts = [2, 4, 2, 4];
+
+  async function api(path, body) {
+    const opts = body === undefined
+      ? { cache: 'no-store' }
+      : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 4000);
+    try {
+      const r = await fetch(path, Object.assign(opts, { signal: ctl.signal }));
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return await r.json();
+    } finally { clearTimeout(t); }
+  }
+
+  function setBig(id, on, sub) {
+    $(id).classList.toggle('on', on);
+    $(id + 'Sub').textContent = sub;
+  }
+
+  function render(s) {
+    state = s;
+    document.body.classList.remove('offline');
+    const paused = s.session && !s.syncing;
+    $('dot').className = 'dot' + (s.syncing ? ' live' : paused && s.lights ? ' pause' : '');
+    $('pill').textContent = s.syncing ? 'Syncing' : s.tvOff ? 'TV off' : paused ? 'Paused' : 'Not syncing';
+    $('status').textContent = s.note || s.status;
+    setBig('sync', s.syncing, s.syncing ? 'Following the TV' : s.session ? 'Paused' : 'Start on the TV');
+    $('sync').disabled = !s.session;
+    setBig('lights', s.lights, s.lights ? 'On' : 'Off');
+    $('hint').textContent = s.session ? '' :
+      'Sync starts on the TV, since Android asks for permission there. After that, pause and resume it from here.';
+    document.querySelectorAll('.seg').forEach((seg) => {
+      const v = s[seg.dataset.key];
+      seg.querySelectorAll('button').forEach((b) => b.classList.toggle('sel', +b.dataset.v === v));
+    });
+    if (!dragging) $('bright').value = s.brightness;
+    $('bval').textContent = (dragging ? $('bright').value : s.brightness) + '%';
+    document.querySelectorAll('.tog').forEach((t) => t.classList.toggle('on', !!s[t.dataset.key]));
+    counts = s.counts && s.counts.length === 4 ? s.counts : counts;
+    target = s.syncing && s.preview && s.preview.length ? s.preview.map(hexToRgb).map(lift) : idle();
+  }
+
+  // Not syncing: a quiet outline of the zones instead of a glow
+  function idle() {
+    return Array.from({ length: counts.reduce((a, b) => a + b, 0) }, () => [46, 46, 64]);
+  }
+
+  function offline() {
+    document.body.classList.add('offline');
+    $('dot').className = 'dot';
+    $('pill').textContent = 'No TV';
+    $('status').textContent = "Can't reach the TV. Check that it's on and your phone is on the same Wi-Fi.";
+    target = idle();
+  }
+
+  async function poll() {
+    clearTimeout(timer);
+    try {
+      render(await api('/api/state'));
+      fails = 0;
+    } catch (e) {
+      if (++fails >= 2) offline();
+    }
+    timer = setTimeout(poll, document.hidden ? 4000 : 300);
+  }
+
+  async function send(path, body, optimistic) {
+    if (!state) return;
+    if (optimistic) render(Object.assign({}, state, optimistic));
+    try { render(await api(path, body)); } catch (e) { poll(); }
+  }
+
+  $('sync').addEventListener('click', () => {
+    const on = !state.syncing;
+    send('/api/sync', { on }, { syncing: on, lights: on ? true : state.lights });
+  });
+  $('lights').addEventListener('click', () => {
+    const on = !state.lights;
+    send('/api/lights', { on }, { lights: on, syncing: on ? state.syncing : false });
+  });
+  document.querySelectorAll('.seg').forEach((seg) => seg.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const v = +b.dataset.v, k = seg.dataset.key;
+    send('/api/set', { [k]: v }, { [k]: v });
+  }));
+  document.querySelectorAll('.tog').forEach((t) => t.addEventListener('click', () => {
+    const k = t.dataset.key, v = !state[k];
+    send('/api/set', { [k]: v }, { [k]: v });
+  }));
+
+  const bright = $('bright');
+  let lastBright = 0;
+  bright.addEventListener('pointerdown', () => { dragging = true; });
+  bright.addEventListener('input', () => {
+    dragging = true;
+    $('bval').textContent = bright.value + '%';
+    const now = Date.now();
+    if (now - lastBright > 200) { lastBright = now; api('/api/set', { brightness: +bright.value }).catch(() => {}); }
+  });
+  bright.addEventListener('change', () => {
+    dragging = false;
+    send('/api/set', { brightness: +bright.value }, { brightness: +bright.value });
+  });
+
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+
+  // ---- the wall: a small TV with the glow around it, eased between updates ----
+  function hexToRgb(h) {
+    const n = parseInt(h.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  // LED values look much darker on a screen than on a wall: lift the dark end, keep the hue
+  function lift(c) {
+    const m = Math.max(c[0], c[1], c[2]);
+    if (m === 0) return [0, 0, 0];
+    const k = 255 * Math.pow(m / 255, 0.55) / m;
+    return c.map((v) => Math.min(255, Math.round(v * k)));
+  }
+
+  const cv = $('wall'), g = cv.getContext('2d');
+  function frame() {
+    const n = counts.reduce((a, b) => a + b, 0);
+    if (shown.length !== n) shown = Array.from({ length: n }, () => [0, 0, 0]);
+    for (let i = 0; i < n; i++) {
+      const t = target[i] || [0, 0, 0];
+      for (let ch = 0; ch < 3; ch++) shown[i][ch] += (t[ch] - shown[i][ch]) * 0.22;
+    }
+    draw(n);
+    requestAnimationFrame(frame);
+  }
+
+  function draw(n) {
+    const W = cv.width, H = cv.height;
+    g.clearRect(0, 0, W, H);
+    const pad = H * 0.17;
+    let th = H - 2 * pad, tw = th * 16 / 9;
+    if (tw > W - 2 * pad) { tw = W - 2 * pad; th = tw * 9 / 16; }
+    const x0 = (W - tw) / 2, y0 = (H - th) / 2, x1 = x0 + tw, y1 = y0 + th;
+    const band = pad * 0.22;
+    let k = 0;
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    for (let side = 0; side < 4; side++) {
+      const m = counts[side];
+      for (let j = 0; j < m; j++, k++) {
+        const c = shown[k] || [0, 0, 0];
+        const mx = Math.max(c[0], c[1], c[2]);
+        if (mx < 4) continue; // nothing lit here
+        const a = j / m, b = (j + 1) / m;
+        let r;
+        if (side === 0) r = [x0 - band, y1 - b * th, band, (b - a) * th];          // left, bottom to top
+        else if (side === 1) r = [x0 + a * tw, y0 - band, (b - a) * tw, band];     // top, left to right
+        else if (side === 2) r = [x1, y0 + a * th, band, (b - a) * th];            // right, top to bottom
+        else r = [x1 - b * tw, y1, (b - a) * tw, band];                            // bottom, right to left
+        const col = 'rgb(' + c.map(Math.round).join(',') + ')';
+        g.shadowColor = col;
+        g.shadowBlur = pad * (0.2 + 0.75 * mx / 255); // brighter zones glow wider
+        g.fillStyle = col;
+        g.fillRect(r[0], r[1], r[2], r[3]);
+      }
+    }
+    g.restore();
+    const rad = H * 0.025;
+    g.fillStyle = '#07070c';
+    g.strokeStyle = '#2c2c40';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.roundRect ? g.roundRect(x0, y0, tw, th, rad) : g.rect(x0, y0, tw, th);
+    g.fill();
+    g.stroke();
+  }
+
+  poll();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

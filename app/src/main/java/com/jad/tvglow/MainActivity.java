@@ -30,8 +30,12 @@ public class MainActivity extends Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Settings settings;
-    private TextView statusView, detailsView;
+    private TextView statusView, detailsView, remoteUrl;
     private GlowPreview glow;
+    private QrView qr;
+    private String shownUrl;
+    private int seenVersion = -1;
+    private static final int PAUSED = 0xFFFFB547;
     private String localStatus = null;
     private long localUntil; // in-app messages clear themselves after a few seconds
     private boolean autoResumeTried;
@@ -52,10 +56,24 @@ public class MainActivity extends Activity {
         @Override
         public void run() {
             boolean on = CaptureService.running;
+            boolean paused = on && CaptureService.paused;
             if (localStatus != null && SystemClock.uptimeMillis() > localUntil) localStatus = null;
             String s = localStatus != null ? localStatus : CaptureService.status;
-            statusTitle.setText(on ? "Syncing" : "Not syncing");
-            ((GradientDrawable) dotView.getBackground()).setColor(on ? LIVE : IDLE);
+            statusTitle.setText(!on ? "Not syncing" : paused ? "Paused" : "Syncing");
+            ((GradientDrawable) dotView.getBackground()).setColor(!on ? IDLE : paused ? PAUSED : LIVE);
+            // Changes made from the phone remote show up here too.
+            int v = Settings.VERSION.get();
+            if (v != seenVersion) {
+                seenVersion = v;
+                settings = Settings.load(MainActivity.this);
+                refreshLabels();
+            }
+            String u = RemoteService.url;
+            if (!u.equals(shownUrl)) {
+                shownUrl = u;
+                qr.setText(u);
+                remoteUrl.setText(u.isEmpty() ? "Starting the remote... (is the TV on Wi-Fi?)" : u);
+            }
             statusView.setText(s);
             String d = on ? CaptureService.details : "";
             detailsView.setText(d);
@@ -77,6 +95,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         settings = Settings.load(this);
+        RemoteService.start(this); // phone remote + lights off with the TV, from now on and after reboots
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(BG);
@@ -265,6 +284,25 @@ public class MainActivity extends Activity {
             local("Color matching reset to neutral.");
         }, false);
 
+        // Phone remote
+        LinearLayout phone = card(right);
+        heading(phone, "PHONE REMOTE");
+        LinearLayout pr = new LinearLayout(this);
+        pr.setOrientation(LinearLayout.HORIZONTAL);
+        pr.setGravity(Gravity.CENTER_VERTICAL);
+        phone.addView(pr);
+        qr = new QrView(this);
+        pr.addView(qr, new LinearLayout.LayoutParams(dp(150), dp(150)));
+        spacer(pr, dp(20));
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        pr.addView(info, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        text(info, "Point your phone's camera at the code", 17, TEXT, true);
+        remoteUrl = text(info, "", 17, ACCENT_A, true);
+        remoteUrl.setPadding(0, dp(6), 0, dp(6));
+        text(info, "Your phone needs to be on the same Wi-Fi as the TV. On iPhone, tap Share, then Add to Home Screen, to keep it like an app.",
+                14, MUTED, false);
+
         setContentView(scroll);
         refreshLabels();
         start.requestFocus();
@@ -307,6 +345,15 @@ public class MainActivity extends Activity {
 
     private void requestCapture() {
         localStatus = null;
+        if (CaptureService.running) {
+            if (CaptureService.paused) {
+                RemoteService.setSync(true); // same session: no permission prompt
+                local("Resumed: the lights are following the picture again.");
+            } else {
+                local("Already syncing.");
+            }
+            return;
+        }
         MediaProjectionManager mpm = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         try {
             startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE);
@@ -327,6 +374,7 @@ public class MainActivity extends Activity {
         }
         settings.wasSyncing = true; // resume automatically after updates and reboots
         settings.save(this);
+        RemoteService.lightsWanted = true; // starting sync means lights on
         Intent svc = new Intent(this, CaptureService.class)
                 .putExtra(CaptureService.EXTRA_CODE, result)
                 .putExtra(CaptureService.EXTRA_DATA, data);

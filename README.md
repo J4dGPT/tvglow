@@ -110,9 +110,20 @@ TV Glow streams WLED's realtime UDP protocol (DRGB/DNRGB, port 21324). WLED goes
 - **Rest glow.** When the picture stays black for a few seconds (protected apps like Netflix, HDMI inputs, or just a black screen), the lights ease into a soft warm glow instead of going dark or complaining, then snap back to the picture the moment it's visible again. Cozy rests on an ember; the other styles on a warm white bias light.
 - **Night dim (on by default).** The lights ease down to 60% between 10 and 11 pm, stay there overnight, and ease back up between 6 and 7 am.
 
+## Phone remote
+
+Control TV Glow from your phone instead of the TV remote. The TV app's **Phone remote** card shows a QR code: point your phone's camera at it (same Wi-Fi as the TV) and the remote opens in the browser. On iPhone, tap Share, then Add to Home Screen, and it opens like an app from then on.
+
+- **Sync**: pause and resume. Pausing switches the screen copy off completely, so the TV runs at full speed, and resuming needs no permission prompt. Starting sync the first time after the TV restarts still happens on the TV, because Android asks for permission there.
+- **Lights**: on and off, whether or not sync is running.
+- **Style, Brightness, Motion, Speed, Night dim, Follow TV**: same settings as on the TV, applied within a second.
+- A live preview of the wall, updated a few times a second.
+
+The remote lives on the TV at `http://<TV address>:8080` (8081 or 8765 if 8080 is taken), on your home network only, with no password: anyone on your Wi-Fi can change the lights, nothing more. It starts with the TV and sleeps on a socket the rest of the time.
+
 ## Smart power and TV health
 
-- **Follow TV (on by default):** when the TV goes to standby or shuts down, the lights fade out and switch off. When the TV wakes up, they switch back on and fade back into the picture, with no need to open the app. Turn **Follow TV** off to keep the lights on as room lighting while the TV is off.
+- **Follow TV (on by default):** when the TV goes to standby or shuts down, the lights switch off, with or without sync running (while syncing they fade out first). When the TV wakes up, they come back on, and sync fades back into the picture, with no need to open the app. A small companion service starts with the TV to make this work when sync is off; it only brings back lights it switched off, so a strip that was already off stays off. Turn **Follow TV** off to keep the lights on as room lighting while the TV is off.
 - **Fade-in:** the lights fade up over 0.7 seconds when sync starts or the TV wakes, instead of snapping on.
 - **TV memory** appears in the status line while syncing (free now and lowest seen), so you can tell whether the TV is running short.
 - **Free up memory** closes apps idling in the background and shows how much memory it freed. Android doesn't let one app force-stop another; this is the version it allows. Idle apps start fresh next time you open them, and anything on screen or playing is left alone. It helps when the TV is short on memory; it can't speed up the screen capture itself.

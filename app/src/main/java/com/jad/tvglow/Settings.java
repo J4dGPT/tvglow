@@ -93,7 +93,11 @@ final class Settings {
         return s;
     }
 
+    /** Bumped on every save, so open screens notice changes made from the phone remote. */
+    static final java.util.concurrent.atomic.AtomicInteger VERSION = new java.util.concurrent.atomic.AtomicInteger();
+
     void save(Context c) {
+        VERSION.incrementAndGet();
         SharedPreferences.Editor e = prefs(c).edit();
         for (int i = 0; i < 4; i++) e.putInt("side" + i, sides[i]);
         e

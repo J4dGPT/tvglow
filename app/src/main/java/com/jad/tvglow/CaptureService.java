@@ -56,6 +56,9 @@ public class CaptureService extends Service {
 
     static volatile boolean running = false;
     static volatile String status = "Idle";
+    /** Sync paused from the phone: the screen copy is off but the session stays, so resuming needs no prompt. */
+    static volatile boolean paused;
+    private static volatile CaptureService instance;
 
     private int W = 96, H = 54;
     private MediaProjection projection;
@@ -129,7 +132,7 @@ public class CaptureService extends Service {
             long now = SystemClock.uptimeMillis();
             try {
                 reloadSettings(now); // so changes apply even while the picture is still
-                if (!tvOff) {
+                if (!tvOff && !paused) {
                     tick(now, false);
                     checkStrip(now);
                 }
@@ -194,6 +197,8 @@ public class CaptureService extends Service {
         settings = Settings.load(this);
         updateCorrection();
         running = true;
+        paused = false;
+        instance = this;
         status = "Connecting to strip...";
         acquireWifiLocks();
         connectStrip();
@@ -632,6 +637,7 @@ public class CaptureService extends Service {
         }
         lastSentColors = null;
         preview = null;
+        RemoteService.darkForTv = true;
         status = "TV is off, so the lights are off. They come back on with the TV.";
     }
 
@@ -639,23 +645,120 @@ public class CaptureService extends Service {
     private void lightsOn() {
         if (!tvOff) return;
         long now = SystemClock.uptimeMillis();
-        Settings s = settings;
-        GoveeClient gc = client;
-        try {
-            if (gc != null && s != null && s.mode != Settings.MODE_WLED) {
-                gc.turnOn();
-                if (s.mode == Settings.MODE_REALTIME) gc.razer(true);
-                lastKeepAlive = now;
-            }
-        } catch (Exception ignored) {
-            // the next frames and keep-alives retry
-        }
         scheduler = null;
         lastSentColors = null;
         connectedAt = now; // fresh grace period: the strip wasn't asked anything while off
         fadeInAt = now;
         tvOff = false;
-        status = "TV is on: lights coming back...";
+        RemoteService.darkForTv = false;
+        if (!RemoteService.lightsWanted) {
+            status = "Lights are off from your phone.";
+            return; // switched off from the phone: stay off
+        }
+        switchOn();
+        // Wi-Fi can take a few seconds to come back after standby: repeat to be sure.
+        handler.postDelayed(retryOn, 2500);
+        handler.postDelayed(retryOn, 6000);
+        status = paused ? "Sync is paused from your phone." : "TV is on: lights coming back...";
+    }
+
+    /** Strip on, and back in realtime mode unless sync is paused. */
+    private void switchOn() {
+        Settings s = settings;
+        GoveeClient gc = client;
+        try {
+            if (gc != null && s != null && s.mode != Settings.MODE_WLED) {
+                gc.turnOn();
+                if (s.mode == Settings.MODE_REALTIME && !paused) gc.razer(true);
+                lastKeepAlive = SystemClock.uptimeMillis();
+            }
+        } catch (Exception ignored) {
+            // the retries and keep-alives try again
+        }
+    }
+
+    private final Runnable retryOn = () -> {
+        if (running && !tvOff && RemoteService.lightsWanted) switchOn();
+    };
+
+    /**
+     * Phone remote: stop or resume following the picture without ending the session. Pausing
+     * turns the screen copy off completely (no load on the TV while paused); resuming starts a
+     * new one from the same permission, so Android doesn't ask again.
+     *
+     * @param lightsOff when pausing, switch the strip off instead of handing it back its own scene
+     * @return false if sync isn't running (it has to be started on the TV once)
+     */
+    static boolean setPaused(boolean pause, boolean lightsOff) {
+        CaptureService s = instance;
+        Handler h = s == null ? null : s.handler;
+        if (h == null || !running) return false;
+        return h.post(() -> s.applyPause(pause, lightsOff));
+    }
+
+    private void applyPause(boolean pause, boolean lightsOff) {
+        if (!running) return;
+        long now = SystemClock.uptimeMillis();
+        Settings s = settings;
+        GoveeClient gc = client;
+        WledClient wc = wled;
+        if (pause) {
+            if (!paused) {
+                paused = true;
+                if (held != null) {
+                    held.close();
+                    held = null;
+                }
+                if (display != null) {
+                    display.release(); // the screen copy stops: the TV gets all its power back
+                    display = null;
+                }
+                latestTarget = null;
+                preview = null;
+            }
+            try {
+                if (lightsOff) {
+                    if (gc != null) {
+                        gc.turnOff();
+                        Thread.sleep(120);
+                        gc.turnOff();
+                    }
+                    if (wc != null && s != null) wc.blackout(s.ledCount);
+                } else {
+                    if (gc != null && s != null) {
+                        gc.turnOn();
+                        if (s.mode == Settings.MODE_REALTIME) gc.razer(false); // back to its own scene
+                    }
+                    if (wc != null) wc.release();
+                }
+            } catch (Exception ignored) {
+            }
+            lastSentColors = null;
+            status = lightsOff ? "Lights are off from your phone."
+                    : "Sync is paused from your phone. The lights show their own scene, and the TV runs at full speed.";
+            return;
+        }
+        if (!paused) return;
+        try {
+            display = projection.createVirtualDisplay("tvglow", W, H, 160,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    reader.getSurface(), null, handler);
+        } catch (RuntimeException e) {
+            // Newer Android versions allow one screen copy per permission
+            status = "Press Start sync on the TV to resume: Android needs your OK again.";
+            stopSelf();
+            return;
+        }
+        paused = false;
+        scheduler = null;
+        lastSentColors = null;
+        connectedAt = now;
+        fadeInAt = now;
+        darkSince = 0;
+        restLevel = 0f;
+        restShown = false;
+        if (!tvOff) switchOn();
+        status = "Lights are following the picture.";
     }
 
     /** The everyday status line: what the lights are doing, in plain words. */
@@ -770,7 +873,7 @@ public class CaptureService extends Service {
     private void tick(long now, boolean fresh) {
         int[] target = latestTarget;
         Settings s = settings;
-        if (target == null || s == null || tvOff) return;
+        if (target == null || s == null || tvOff || paused) return;
         int mode = s.mode;
         GoveeClient gc = client;
         WledClient wc = wled;
@@ -930,6 +1033,8 @@ public class CaptureService extends Service {
         }
         preview = null;
         details = "";
+        instance = null;
+        paused = false;
         releaseWifiLocks();
         // Frames are only ever touched on the capture thread, so tear capture down there too:
         // a frame being read can't race with the reader closing under it.
@@ -937,6 +1042,7 @@ public class CaptureService extends Service {
         if (h != null) {
             h.removeCallbacks(ticker);
             h.removeCallbacks(drain);
+            h.removeCallbacks(retryOn);
             h.post(this::releaseCapture);
         } else {
             releaseCapture();
@@ -951,7 +1057,9 @@ public class CaptureService extends Service {
         // With the TV off (or going off), leave the strip dark instead of handing it back to its
         // old scene, which would light the room up with the TV off.
         Settings st = settings;
-        final boolean leaveDark = tvOff || (!screenOn() && (st == null || st.followTv));
+        // Also dark if the lights were switched off from the phone.
+        final boolean leaveDark = tvOff || (!screenOn() && (st == null || st.followTv)) || !RemoteService.lightsWanted;
+        if (tvOff || !screenOn()) RemoteService.darkForTv = true; // the companion brings them back with the TV
         final int leds = st == null ? 1 : Math.max(1, st.ledCount);
         final GoveeClient c = client;
         final WledClient w = wled;
