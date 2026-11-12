@@ -263,16 +263,37 @@ public final class EdgeSampler {
     public static final int STYLE_COZY = 0, STYLE_VIVID = 1, STYLE_ACCURATE = 2;
 
     /**
-     * Final look. Cozy: deep saturated color, darker tone curve, whites become warm
-     * amber, and dark scenes keep a faint ember glow instead of going black.
+     * Screen pixels are gamma encoded (sRGB): a value of 128 is only about 22% of the light
+     * of 255. The strip's LEDs are driven linearly, so 128 there is about 50% light. Sending
+     * screen values unchanged makes mid-tones too bright and lets the weaker channels show
+     * through, which washes colors out and pulls hues (sky blue reads pale, pink reads
+     * white-ish). Decoding each channel to linear light before sending fixes both.
+     */
+    static int toLed(int c, float gamma, float bright) {
+        return led(((c >> 16) & 0xFF), gamma, bright) << 16
+                | led(((c >> 8) & 0xFF), gamma, bright) << 8
+                | led(c & 0xFF, gamma, bright);
+    }
+
+    private static int led(int v, float gamma, float bright) {
+        float lin = gamma == 0f ? ColorMath.LIN[v] : (float) Math.pow(v / 255f, gamma);
+        return clamp(lin * bright * 255f);
+    }
+
+    /**
+     * Final look, in the strip's (linear) light values.
+     * Accurate: the screen color decoded to linear light, nothing else.
+     * Vivid: more saturation and a slightly lighter curve, still decoded.
+     * Cozy: deep saturated color, darker tone curve, whites become warm amber, and dark
+     * scenes keep a faint ember glow instead of going black.
      */
     public static int style(int c, int style, float bright) {
-        if (style == STYLE_ACCURATE) return adjust(c, 1.15f, bright); // slight lift: a wall dulls colored light
+        if (style == STYLE_ACCURATE) return toLed(c, 0f, bright);
         float[] hsv = toHsv(c);
         float h = hsv[0], s = hsv[1], v = hsv[2];
         if (style == STYLE_VIVID) {
-            if (s > 0.08f) s = Math.min(1f, s * 1.5f + 0.05f);
-            v = (float) Math.pow(v, 1.15);
+            if (s > 0.08f) s = Math.min(1f, s * 1.35f + 0.05f);
+            return toLed(fromHsv(h, s, v), 1.8f, bright);
         } else {
             // All transitions are soft blends: no thresholds, so nothing flickers.
             float vc = (float) Math.pow(v, 1.7) * 0.8f * bright;          // darker curve
@@ -285,7 +306,6 @@ public final class EdgeSampler {
             float emberMix = Math.max(0f, Math.min(1f, (0.07f - lum) / 0.07f));
             return lerp(out, ember, emberMix);
         }
-        return fromHsv(h, s, Math.min(1f, v * bright));
     }
 
     static int lerp(int a, int b, float t) {

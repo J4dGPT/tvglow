@@ -94,7 +94,7 @@ TV Glow streams WLED's realtime UDP protocol (DRGB/DNRGB, port 21324). WLED goes
 ## Accurate colors
 
 - Zones are sampled as the plain average of each edge region, so hues stay true (no bias toward saturated pixels).
-- **Style: Accurate** keeps hue within about 3 degrees; Cozy and Vivid are deliberate looks.
+- **Style: Accurate** decodes each screen channel from sRGB to linear light before sending. Screen values are gamma encoded but the strip drives its LEDs linearly, so sending them raw made mid-tones too bright and washed colors toward white. Vivid adds saturation on top of the same decoding; Cozy is a deliberate warm, dim look.
 - **Match colors** (Look card, with sync stopped) calibrates the strip to your TV and wall: the TV shows a reference color, the strip shows the same color, and left/right on the remote adjusts it until they match. Steps: white, white tint, cyan, magenta, yellow. Each step moves one corner of an RGB color cube (the HyperHDR approach), so it only affects colors near that corner and dark colors stay true. OK goes to the next step, BACK to the previous one. Finishing saves the result and switches to Accurate. **Reset colors** returns to neutral.
 
 ## Self-healing sync
